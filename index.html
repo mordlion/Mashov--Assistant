@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ניתוח דוחות נוכחות והתנהגות - משו"ב</title>
+  
+  <!-- Google Fonts: Heebo for clean, modern Hebrew typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Heebo', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              800: '#3730a3',
+              900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- SheetJS (xlsx.full.min.js) for parsing Excel / CSV locally in browser -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Transformers.js via CDN (ES Module) for Client-side Local AI Insights -->
+  <script type="module">
+    try {
+      import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2').then(module => {
+        window.transformersPipeline = module.pipeline;
+        window.transformersEnv = module.env;
+        if (module.env) module.env.allowLocalModels = false;
+        window.transformersReady = true;
+        console.log('Transformers.js initialized successfully in browser');
+      }).catch(err => {
+        console.warn('Transformers.js dynamic import notice:', err);
+      });
+    } catch (e) {
+      console.warn('Transformers.js script tag notice:', e);
+    }
+  </script>
+
+  <style>
+    /* Custom styling & animations */
+    body {
+      font-family: 'Heebo', system-ui, sans-serif;
+    }
+    
+    /* Subtle scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Mobile friendly horizontal scrollbars */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Manual Highlighter (Marker) Row Animation and Styling */
+    .marked-row {
+      background-color: #fef08a !important; /* bright marker yellow */
+      box-shadow: inset 0 0 0 2px #eab308;
+      position: relative;
+    }
+    .marked-row:hover {
+      background-color: #fde047 !important;
+    }
+    
+    /* Highlight transitions */
+    tr {
+      transition: background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    /* Print styling */
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+      body {
+        background: white !important;
+        color: black !important;
+      }
+      .card-print {
+        box-shadow: none !important;
+        border: 1px solid #ccc !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- ========================================== -->
+  <!-- 1. ONBOARDING SCREEN                      -->
+  <!-- ========================================== -->
+  <div id="onboardingScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-indigo-900 via-indigo-800 to-slate-900 p-4 transition-opacity duration-300">
+    <div class="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 border border-white/20 text-center relative overflow-hidden transform transition-all">
+      <!-- Decorative background blur -->
+      <div class="absolute -top-12 -right-12 w-40 h-40 bg-indigo-200 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+      <div class="absolute -bottom-12 -left-12 w-40 h-40 bg-purple-200 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+      
+      <!-- Icon -->
+      <div class="mx-auto w-20 h-20 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-6 shadow-inner ring-8 ring-indigo-50/50">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+      </div>
+
+      <!-- Heading -->
+      <h1 class="text-2xl font-bold text-slate-900 mb-2">מערכת תובנות התנהגות ונוכחות</h1>
+      <p class="text-slate-600 text-sm mb-6 leading-relaxed">
+        כלי עבודה פנימי למורי ורכזי חטיבת הביניים. 
+        ניתוח מהיר, הפקת תובנות פדגוגיות וסימון מוקדי תשומת לב.
+      </p>
+
+      <!-- Privacy Guarantee Banner -->
+      <div class="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3.5 mb-6 text-right flex items-start gap-3">
+        <div class="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg shrink-0 mt-0.5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+          </svg>
+        </div>
+        <div class="text-xs text-emerald-800 leading-snug">
+          <span class="font-bold block">100% פרטיות ואבטחת מידע:</span>
+          הקובץ מעובד באופן מקומי בלבד במחשבך. שום נתון אינו נשלח לשרת חיצוני.
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form id="loginForm" class="space-y-4 text-right" onsubmit="handleLogin(event)">
+        <div>
+          <label for="teacherNameInput" class="block text-xs font-semibold text-slate-700 mb-1.5 mr-1">הכנס את שמך</label>
+          <input 
+            type="text" 
+            id="teacherNameInput" 
+            required 
+            placeholder="הכנס את שמך כאן..."
+            class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm font-medium"
+            autocomplete="name"
+            autofocus
+          >
+        </div>
+
+        <button 
+          type="submit" 
+          class="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 group text-base"
+        >
+          <span>כניסה</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ========================================== -->
+  <!-- MAIN APP WRAPPER (DASHBOARD)               -->
+  <!-- ========================================== -->
+  <div id="mainApp" class="flex-1 flex flex-col min-h-screen hidden">
+    
+    <!-- Top Navigation Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm no-print">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <!-- Brand & Greeting -->
+        <div class="flex items-center gap-4">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center font-bold shadow-md shadow-indigo-500/20">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </div>
+          <div>
+            <div id="greetingText" class="text-base font-bold text-slate-900 leading-tight">בוקר טוב</div>
+            <div class="text-xs text-slate-500">דשבורד מעקב נוכחות ואירועי שיעור</div>
+          </div>
+        </div>
+
+        <!-- Controls: Switch User & Quick Actions -->
+        <div class="flex items-center gap-3">
+          <button 
+            onclick="resetFile()" 
+            id="btnChangeFile" 
+            class="hidden px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
+            title="העלאת קובץ חדש"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <span>החלף קובץ</span>
+          </button>
+
+          <button 
+            onclick="switchUser()" 
+            class="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors flex items-center gap-1"
+          >
+            <span>החלף מורה</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+      <!-- ========================================== -->
+      <!-- 2. DATA LOADING AREA (DRAG & DROP)         -->
+      <!-- ========================================== -->
+      <section id="uploadSection" class="transition-all duration-300">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-8 sm:p-10 text-center relative overflow-hidden">
+          <!-- Background decoration -->
+          <div class="absolute inset-0 bg-gradient-to-b from-indigo-50/40 via-transparent to-transparent pointer-events-none"></div>
+
+          <!-- Drop Area -->
+          <div 
+            id="dropZone" 
+            class="relative border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-slate-50/50 hover:bg-indigo-50/30 rounded-2xl p-8 sm:p-12 transition-all cursor-pointer flex flex-col items-center justify-center group"
+            onclick="document.getElementById('fileInput').click()"
+          >
+            <input 
+              type="file" 
+              id="fileInput" 
+              accept=".xlsx, .xls, .csv" 
+              class="hidden" 
+              onchange="handleFileSelect(event)"
+            >
+
+            <!-- Upload Icon with glow effect -->
+            <div class="w-20 h-20 mb-5 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+
+            <h3 class="text-lg font-bold text-slate-900 mb-1.5">גרור לכאן את קובץ האקסל או ה-CSV מתוכנת משו"ב</h3>
+            <p class="text-sm text-slate-500 max-w-md mb-6">
+              תמיכה מלאה בקבצי דוח התנהגות ונוכחות תקניים עם 3 שורות כותרת (נתוני העמודות בשורה 3).
+            </p>
+
+            <div class="flex flex-wrap items-center justify-center gap-3">
+              <button 
+                type="button" 
+                class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center gap-2"
+                onclick="event.stopPropagation(); document.getElementById('fileInput').click()"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>בחירת קובץ מהמחשב</span>
+              </button>
+
+              <button 
+                type="button" 
+                class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-xl transition-all flex items-center gap-2 border border-slate-200"
+                onclick="event.stopPropagation(); loadSampleData()"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span>טען נתוני דוגמה (משו"ב ז'1)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Error Alert Banner -->
+          <div id="uploadError" class="hidden mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-right text-rose-800 flex items-start gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-rose-600 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+            <div>
+              <h4 class="font-bold text-sm text-rose-900" id="errorTitle">שגיאה בפענוח הקובץ</h4>
+              <p class="text-xs text-rose-700 mt-0.5" id="errorMessage">מבנה הקובץ אינו תואם את המבנה המצופה של דוח משו"ב.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- DASHBOARD WRAPPER (SHOWN AFTER PARSE)      -->
+      <!-- ========================================== -->
+      <div id="dashboardSection" class="hidden space-y-6">
+
+        <!-- ========================================== -->
+        <!-- 3. INSIGHTS & HIGHLIGHTS (TOP SECTION)    -->
+        <!-- ========================================== -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-6">
+          
+          <!-- Top Header: Title, Mode Tabs & Filters Bar -->
+          <div class="space-y-4 pb-4 border-b border-slate-100">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <span class="w-2.5 h-6 bg-indigo-600 rounded-full inline-block"></span>
+                  <span>תובנות חכמות ומוקדי תשומת לב</span>
+                </h2>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  זיהוי דפוסי רצף, שיעורי בוקר, חריגות סטטיסטיות, תלמידים מצטיינים וניתוח AI מקומי.
+                </p>
+              </div>
+
+              <!-- Controls: Time Filters & Subject Filter -->
+              <div class="flex flex-wrap items-center gap-2.5">
+                <!-- Time Range Filter Buttons -->
+                <div class="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-semibold">
+                  <button 
+                    type="button" 
+                    data-time-filter="all" 
+                    onclick="setTimeFilter('all')" 
+                    class="time-filter-btn px-3 py-1.5 rounded-lg text-slate-600 transition-all active-filter"
+                  >הכל</button>
+                  <button 
+                    type="button" 
+                    data-time-filter="week" 
+                    onclick="setTimeFilter('week')" 
+                    class="time-filter-btn px-3 py-1.5 rounded-lg text-slate-600 transition-all"
+                  >השבוע האחרון</button>
+                  <button 
+                    type="button" 
+                    data-time-filter="month" 
+                    onclick="setTimeFilter('month')" 
+                    class="time-filter-btn px-3 py-1.5 rounded-lg text-slate-600 transition-all"
+                  >החודש האחרון</button>
+                  <button 
+                    type="button" 
+                    data-time-filter="year" 
+                    onclick="setTimeFilter('year')" 
+                    class="time-filter-btn px-3 py-1.5 rounded-lg text-slate-600 transition-all"
+                  >מתחילת השנה</button>
+                </div>
+
+                <!-- Subject Dropdown Filter -->
+                <div class="relative">
+                  <select 
+                    id="subjectFilterSelect" 
+                    onchange="handleSubjectChange(this.value)" 
+                    class="appearance-none bg-slate-100 hover:bg-slate-200/80 border border-slate-200 text-slate-800 text-xs font-semibold rounded-xl py-2 pl-8 pr-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer"
+                  >
+                    <option value="ALL">כל המקצועות</option>
+                  </select>
+                  <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center px-2.5 text-slate-500">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Insight Mode Tabs (Smart Rules, Positives/Excellence, Local AI) -->
+            <div class="flex items-center gap-2 pt-1 overflow-x-auto no-scrollbar">
+              <button 
+                type="button" 
+                data-tab="smartRules"
+                onclick="switchInsightTab('smartRules')"
+                class="insight-tab-btn px-3.5 py-1.5 rounded-xl font-bold bg-indigo-600 text-white shadow-sm transition-all text-xs flex items-center gap-1.5 shrink-0"
+              >
+                <span>⚡</span>
+                <span>תובנות חכמות (מנוע חוקים)</span>
+              </button>
+
+              <button 
+                type="button" 
+                data-tab="positives"
+                onclick="switchInsightTab('positives')"
+                class="insight-tab-btn px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all text-xs font-semibold flex items-center gap-1.5 shrink-0"
+              >
+                <span>🌟</span>
+                <span>תלמידים מצטיינים ושבחים</span>
+                <span id="positivesCountBadge" class="bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">0</span>
+              </button>
+
+              <button 
+                type="button" 
+                data-tab="ai"
+                onclick="switchInsightTab('ai')"
+                class="insight-tab-btn px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all text-xs font-semibold flex items-center gap-1.5 shrink-0"
+              >
+                <span>🤖</span>
+                <span>תובנות AI מקומי (Transformers.js)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Active Insight Filter Banner (Dismissible) -->
+          <div id="activeInsightBanner" class="hidden mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2 text-indigo-900 font-medium">
+              <span class="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+              <span>סינון פעיל על פי תובנה:</span>
+              <span id="activeInsightDesc" class="font-bold underline"></span>
+            </div>
+            <button 
+              onclick="clearInsightFilter()" 
+              class="px-2.5 py-1 bg-white hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg border border-indigo-300 transition-colors flex items-center gap-1"
+            >
+              <span>בטל סינון תובנה</span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Mobile Swipe Hint -->
+          <div class="sm:hidden flex items-center justify-between text-[11px] text-indigo-700 bg-indigo-50/60 px-3 py-1.5 rounded-xl border border-indigo-100 mt-4">
+            <span>👈 החלק אופקית לצפייה בכל הכרטיסיות</span>
+            <span>👆 לחץ על כרטיס לסינון בטבלה</span>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- TAB PANE 1: SMART RULES ENGINE CARDS       -->
+          <!-- ========================================== -->
+          <div id="smartRulesPane" class="mt-4">
+            <div id="smartRulesContainer" class="flex overflow-x-auto sm:grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pb-3 snap-x snap-mandatory no-scrollbar">
+              <!-- Smart Rule Cards injected dynamically -->
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- TAB PANE 2: OUTSTANDING STUDENTS & FEED    -->
+          <!-- ========================================== -->
+          <div id="positivesPane" class="hidden mt-4 space-y-6">
+            <!-- Section A: Outstanding Students Highlights -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <span>🏆</span> תלמידים מצטיינים (הישגים והתנהגות מופתית)
+                </h3>
+                <span class="text-xs text-slate-500">לחץ על תלמיד לסינון הישגיו בטבלה</span>
+              </div>
+              <div id="excellenceCardsContainer" class="flex overflow-x-auto sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-3 pb-2 snap-x snap-mandatory no-scrollbar">
+                <!-- Outstanding students cards injected dynamically -->
+              </div>
+            </div>
+
+            <!-- Section B: Positive Remarks Feed -->
+            <div class="pt-4 border-t border-slate-100">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                  <span>💬</span> לוח הערות חיוביות ודברי שבח מהדוח
+                </h3>
+                <span class="text-xs text-slate-500">פיד מחמאות מפורט</span>
+              </div>
+              <div id="positiveFeedContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <!-- Positive remarks feed injected dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- ========================================== -->
+          <!-- TAB PANE 3: LOCAL AI (TRANSFORMERS.JS)     -->
+          <!-- ========================================== -->
+          <div id="aiPane" class="hidden mt-4 space-y-4">
+            <div class="p-5 bg-gradient-to-r from-indigo-50 via-purple-50 to-slate-50 border border-indigo-100 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 bg-indigo-600 text-white rounded-md text-[11px] font-bold">Local Transformers.js</span>
+                  <h3 class="text-base font-bold text-slate-900">ניתוח שפה AI מקומי 100% בדפדפן</h3>
+                </div>
+                <p class="text-xs text-slate-600 max-w-xl">
+                  עיבוד שפה טבעית מבוסס מודל קל-משקל הרץ כולו על גבי המחשב שלך ללא שליחת נתונים לאף שרת חיצוני.
+                </p>
+              </div>
+
+              <button 
+                id="btnRunAI" 
+                onclick="runAIAnalysis()" 
+                class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center gap-2 shrink-0"
+              >
+                <span>✨</span>
+                <span>הפק תובנות AI מקומיות</span>
+              </button>
+            </div>
+
+            <!-- AI Loading Indicator -->
+            <div id="aiLoadingIndicator" class="hidden p-8 text-center bg-indigo-50/40 border border-indigo-200/80 rounded-2xl">
+              <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent mb-3"></div>
+              <div class="text-sm font-bold text-indigo-900">
+                המודל נטען ומעבד את הנתונים... <span id="aiLoadingProgress" class="font-mono text-indigo-600"></span>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">טעינת משקלי מודל קל-משקל ישירות לזיכרון הדפדפן (פרטיות מוחלטת 100%)</p>
+            </div>
+
+            <!-- AI Insights Result Cards -->
+            <div id="aiResultsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <!-- AI generated insight sentences injected here -->
+            </div>
+          </div>
+
+        </section>
+
+
+        <!-- ========================================== -->
+        <!-- 4. MAIN DATA TABLE (BOTTOM SECTION)       -->
+        <!-- ========================================== -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
+          
+          <!-- Table Toolbar -->
+          <div class="p-6 border-b border-slate-200 bg-slate-50/50 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+            
+            <!-- Search Input -->
+            <div class="relative flex-1 max-w-md">
+              <div class="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-slate-400">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input 
+                type="text" 
+                id="tableSearchInput" 
+                placeholder="חיפוש מהיר: שם תלמיד, סוג אירוע, מורה, כיתה..."
+                oninput="handleSearch(this.value)"
+                class="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-300 rounded-xl text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
+              >
+              <button 
+                id="clearSearchBtn" 
+                onclick="clearSearch()" 
+                class="hidden absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 hover:text-slate-600"
+                title="נקה חיפוש"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <!-- Table Actions: Highlight Filter, Counts & Print/Export -->
+            <div class="flex flex-wrap items-center gap-2.5">
+              
+              <!-- Filter by Marked Rows Toggle -->
+              <button 
+                id="filterMarkedBtn" 
+                onclick="toggleMarkedOnlyFilter()" 
+                class="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                <span class="text-sm">⭐</span>
+                <span>מסומנים לדיון</span>
+                <span id="markedCountBadge" class="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-md text-[11px]">0</span>
+              </button>
+
+              <!-- Clear all marks button (if any marked) -->
+              <button 
+                id="clearMarksBtn" 
+                onclick="clearAllMarks()" 
+                class="hidden px-2.5 py-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold rounded-xl border border-slate-200 transition-colors"
+                title="אפס את כל הסימונים"
+              >
+                <span>נקה סימונים</span>
+              </button>
+
+              <div class="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+
+              <!-- Export / Print -->
+              <button 
+                onclick="window.print()" 
+                class="no-print px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition-colors flex items-center gap-1.5"
+                title="הדפסת הטבלה"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                <span>הדפסה</span>
+              </button>
+
+              <button 
+                onclick="exportFilteredToExcel()" 
+                class="no-print px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
+                title="ייצוא הנתונים המוצגים לקובץ אקסל"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>ייצוא לאקסל</span>
+              </button>
+
+            </div>
+
+          </div>
+
+          <!-- Table Legend (Color meanings) -->
+          <div class="px-6 py-2.5 bg-slate-100/70 border-b border-slate-200 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-4">
+              <span class="font-bold text-slate-700">מקרא צבעים אוטומטי:</span>
+              <span class="inline-flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+                <span>אירוע חמור / הפרעה</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-full bg-orange-400"></span>
+                <span>חיסור</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-full bg-amber-400"></span>
+                <span>איחור</span>
+              </span>
+              <span class="inline-flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                <span>מחמאה / נקודת אור</span>
+              </span>
+            </div>
+            <div class="text-slate-500 text-[11px]">
+              💡 <span class="font-medium">טיפ למורה:</span> לחץ על שורה בטבלה כדי לסמן אותה במרקר (⭐) לדיון בישיבת צוות
+            </div>
+          </div>
+
+          <!-- Responsive Table Container -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-right border-collapse text-sm" id="dataTable">
+              <thead>
+                <tr class="bg-slate-100 text-slate-700 text-xs font-bold border-b border-slate-200 select-none">
+                  <th class="py-3.5 px-3 text-center w-12" title="סימון שורה במרקר">מרקר</th>
+                  <th class="py-3.5 px-3 cursor-pointer hover:bg-slate-200/70 transition-colors" onclick="sortTable('id')">
+                    <div class="flex items-center gap-1">
+                      <span>מס'</span>
+                      <span class="sort-icon text-slate-400" id="sort-id">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-3 cursor-pointer hover:bg-slate-200/70 transition-colors" onclick="sortTable('date')">
+                    <div class="flex items-center gap-1">
+                      <span>תאריך</span>
+                      <span class="sort-icon text-slate-400" id="sort-date">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-2.5 text-center cursor-pointer hover:bg-slate-200/70 transition-colors" onclick="sortTable('lessonNum')">
+                    <div class="flex items-center justify-center gap-1">
+                      <span>שיעור</span>
+                      <span class="sort-icon text-slate-400" id="sort-lessonNum">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-3 cursor-pointer hover:bg-slate-200/70 transition-colors font-extrabold" onclick="sortTable('studentName')">
+                    <div class="flex items-center gap-1">
+                      <span>שם התלמיד</span>
+                      <span class="sort-icon text-slate-400" id="sort-studentName">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-2.5 text-center">כיתה</th>
+                  <th class="py-3.5 px-3 cursor-pointer hover:bg-slate-200/70 transition-colors" onclick="sortTable('subject')">
+                    <div class="flex items-center gap-1">
+                      <span>מקצוע</span>
+                      <span class="sort-icon text-slate-400" id="sort-subject">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-3 cursor-pointer hover:bg-slate-200/70 transition-colors" onclick="sortTable('eventType')">
+                    <div class="flex items-center gap-1">
+                      <span>סוג האירוע</span>
+                      <span class="sort-icon text-slate-400" id="sort-eventType">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-3">נושא השיעור</th>
+                  <th class="py-3.5 px-3 cursor-pointer hover:bg-slate-200/70 transition-colors" onclick="sortTable('teacher')">
+                    <div class="flex items-center gap-1">
+                      <span>שם המורה</span>
+                      <span class="sort-icon text-slate-400" id="sort-teacher">↕</span>
+                    </div>
+                  </th>
+                  <th class="py-3.5 px-3">הצדקה / אישור</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody" class="divide-y divide-slate-200/70 font-medium">
+                <!-- Rows will be injected here dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Empty State for Table -->
+          <div id="tableEmptyState" class="hidden py-16 text-center">
+            <div class="w-16 h-16 mx-auto mb-3 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h4 class="text-base font-bold text-slate-700">לא נמצאו רשומות תואמות</h4>
+            <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              נסה לשנות את מונח החיפוש, לבטל את סינון המרקר או לשנות את טווח הזמנים והמקצועות שנבחרו.
+            </p>
+            <button 
+              onclick="resetAllFilters()" 
+              class="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-xs font-bold rounded-xl transition-colors"
+            >
+              אפס את כל הסינונים
+            </button>
+          </div>
+
+          <!-- Table Footer / Pagination & Count -->
+          <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+            <div id="tableRecordCount" class="font-medium">
+              מציג 0 מתוך 0 רשומות
+            </div>
+
+            <!-- Page Size & Pagination Controls -->
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-1.5">
+                <span>שורות לעמוד:</span>
+                <select 
+                  id="pageSizeSelect" 
+                  onchange="changePageSize(this.value)" 
+                  class="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                >
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                  <option value="all">הכל</option>
+                </select>
+              </div>
+
+              <!-- Page navigation -->
+              <div class="flex items-center gap-1" id="paginationControls">
+                <button 
+                  id="prevPageBtn" 
+                  onclick="changePage(-1)" 
+                  class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-bold"
+                >
+                  הקודם
+                </button>
+                <span id="pageIndicator" class="px-2 font-semibold">1 / 1</span>
+                <button 
+                  id="nextPageBtn" 
+                  onclick="changePage(1)" 
+                  class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-bold"
+                >
+                  הבא
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </section>
+
+      </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 mt-auto py-4 text-center text-xs text-slate-500 no-print">
+      <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div>
+          מערכת ניתוח נתוני משו"ב • נבנה עבור מורים ורכזי שכבה
+        </div>
+        <div class="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 font-medium text-[11px]">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+          <span>עיבוד מקומי בטוח 100% • שום נתון אינו עוזב את הדפדפן</span>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+
+  <!-- ========================================== -->
+  <!-- JAVASCRIPT LOGIC                           -->
+  <!-- ========================================== -->
+  <script>
+    /**
+     * STATE MANAGEMENT
+     * Completely in-memory, stateless, resets on refresh.
+     */
+    const state = {
+      teacherName: '',
+      rawRows: [],          // Parsed raw rows from file
+      filteredRows: [],     // Rows after time, subject, insight & search filters
+      markedRowIds: new Set(), // Set of row IDs toggled with the marker (⭐)
+      showMarkedOnly: false,
+
+      // Filters
+      timeFilter: 'all',    // 'all', 'week', 'month', 'year'
+      subjectFilter: 'ALL', // 'ALL' or specific subject
+      searchQuery: '',
+      activeInsight: null,  // { type, value, label }
+
+      // Sorting
+      sortColumn: 'id',
+      sortAsc: true,
+
+      // Pagination
+      currentPage: 1,
+      pageSize: 50,         // or 'all'
+
+      // Dataset Date Range
+      minDate: null,
+      maxDate: null
+    };
+
+    // ==========================================
+    // 1. ONBOARDING & GREETING LOGIC
+    // ==========================================
+
+    function handleLogin(e) {
+      if (e) e.preventDefault();
+      const nameInput = document.getElementById('teacherNameInput');
+      const name = nameInput.value.trim();
+      if (!name) return;
+
+      state.teacherName = name;
+      updateGreeting();
+
+      // Smooth transition to main app
+      const onboarding = document.getElementById('onboardingScreen');
+      onboarding.classList.add('opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        onboarding.classList.add('hidden');
+        document.getElementById('mainApp').classList.remove('hidden');
+      }, 300);
+    }
+
+    function updateGreeting() {
+      const now = new Date();
+      const hour = now.getHours();
+      let greeting = 'שלום';
+
+      if (hour >= 5 && hour < 12) {
+        greeting = 'בוקר טוב';
+      } else if (hour >= 12 && hour < 17) {
+        greeting = 'צהריים טובים';
+      } else if (hour >= 17 && hour < 21) {
+        greeting = 'ערב טוב';
+      } else {
+        greeting = 'לילה טוב';
+      }
+
+      const greetingEl = document.getElementById('greetingText');
+      if (greetingEl) {
+        greetingEl.innerHTML = `${greeting}, <span class="text-indigo-600">${escapeHtml(state.teacherName)}</span> 👋`;
+      }
+    }
+
+    function switchUser() {
+      const onboarding = document.getElementById('onboardingScreen');
+      onboarding.classList.remove('hidden', 'opacity-0', 'pointer-events-none');
+      document.getElementById('mainApp').classList.add('hidden');
+      document.getElementById('teacherNameInput').focus();
+    }
+
+    // ==========================================
+    // 2. EXCEL / CSV PARSING LOGIC (ROBUST)
+    // ==========================================
+
+    // Setup Drag and Drop listeners
+    const dropZone = document.getElementById('dropZone');
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('border-indigo-500', 'bg-indigo-50/50', 'scale-[1.01]');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50', 'scale-[1.01]');
+      }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const files = dt.files;
+      if (files && files.length > 0) {
+        parseUploadedFile(files[0]);
+      }
+    });
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        parseUploadedFile(file);
+      }
+    }
+
+    /**
+     * Parses an uploaded file (XLSX, XLS, CSV) using SheetJS.
+     * Specifically accounts for middle-school Mashov exports:
+     * - Expected row with headers is typically Row 3 (index 2).
+     * - Robust fallback will search the first 8 rows to locate column headers.
+     */
+    function parseUploadedFile(file) {
+      hideError();
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { 
+            type: 'array',
+            cellDates: true,
+            dateNF: 'dd/mm/yyyy'
+          });
+
+          if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            showError('קובץ ריק', 'הקובץ שהועלה אינו מכיל גליונות נתונים.');
+            return;
+          }
+
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          
+          // Read raw rows as array of arrays
+          const rawAOA = XLSX.utils.sheet_to_json(firstSheet, { 
+            header: 1, 
+            defval: '',
+            raw: false
+          });
+
+          if (!rawAOA || rawAOA.length < 3) {
+            showError('מבנה קובץ חסר', 'הקובץ קצר מדי או אינו מכיל מספיק שורות לזיהוי כותרות ונתונים.');
+            return;
+          }
+
+          processParsedAOA(rawAOA);
+
+        } catch (err) {
+          console.error('Error parsing file:', err);
+          showError('שגיאה בקריאת הקובץ', 'אירעה שגיאה בעת פענוח הקובץ. ודא כי זהו קובץ Excel או CSV תקין.');
+        }
+      };
+
+      reader.onerror = function() {
+        showError('שגיאת קריאה', 'לא ניתן היה לקרוא את הקובץ מהמכשיר שלך.');
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    /**
+     * Finds headers row and constructs standardized student event objects.
+     */
+    function processParsedAOA(aoa) {
+      // 1. Locate header row:
+      // The prompt specified: "The expected input file has 3 header rows. The actual column names are on row 3 (Index 2)."
+      // We will first check row index 2, but also smartly search rows 0-7 if needed.
+      let headerRowIndex = 2; // Default to index 2 (row 3)
+
+      function isHeaderRow(row) {
+        if (!Array.isArray(row)) return false;
+        const text = row.map(c => String(c).trim()).join(' ');
+        return (text.includes('סוג האירוע') || text.includes('אירוע')) && 
+               (text.includes('שם התלמיד') || text.includes('תלמיד') || text.includes('ת.ז'));
+      }
+
+      if (!isHeaderRow(aoa[headerRowIndex])) {
+        // Search rows 0 through 7
+        for (let i = 0; i < Math.min(8, aoa.length); i++) {
+          if (isHeaderRow(aoa[i])) {
+            headerRowIndex = i;
+            break;
+          }
+        }
+      }
+
+      const headers = aoa[headerRowIndex].map(h => String(h).trim());
+
+      // Helper to find column index by potential names
+      function findColIdx(candidates) {
+        for (const cand of candidates) {
+          const idx = headers.findIndex(h => h.includes(cand));
+          if (idx !== -1) return idx;
+        }
+        return -1;
+      }
+
+      const colMap = {
+        id: findColIdx(["מס'", "מספר", "מזהה"]),
+        teacher: findColIdx(["שם המורה", "מורה"]),
+        subject: findColIdx(["מקצוע"]),
+        date: findColIdx(["תאריך"]),
+        lessonNum: findColIdx(["מספר שיעור", "שיעור"]),
+        lessonTopic: findColIdx(["נושא השיעור", "נושא"]),
+        studentId: findColIdx(["ת.ז", "תעודת זהות", "ת\"ז"]),
+        studentName: findColIdx(["שם התלמיד", "תלמיד"]),
+        gradeLevel: findColIdx(["שכבה"]),
+        gradeClass: findColIdx(["כיתה"]),
+        eventType: findColIdx(["סוג האירוע", "אירוע"]),
+        justification: findColIdx(["הצדקה"]),
+        justifiedBy: findColIdx(["הוצדק ע\"י", "הוצדק"])
+      };
+
+      // Check essential columns
+      if (colMap.studentName === -1 && colMap.eventType === -1) {
+        showError('עמודות חסרות', 'לא נמצאו עמודות "שם התלמיד" ו"סוג האירוע" בשורה 3 של הקובץ.');
+        return;
+      }
+
+      const parsedRows = [];
+      let latestDate = null;
+      let earliestDate = null;
+
+      for (let r = headerRowIndex + 1; r < aoa.length; r++) {
+        const row = aoa[r];
+        if (!row || row.length === 0) continue;
+
+        // Extract student name or event type; if both empty, skip empty row
+        const studentName = colMap.studentName !== -1 ? String(row[colMap.studentName] || '').trim() : '';
+        const eventType = colMap.eventType !== -1 ? String(row[colMap.eventType] || '').trim() : '';
+        if (!studentName && !eventType) continue;
+
+        const dateStr = colMap.date !== -1 ? String(row[colMap.date] || '').trim() : '';
+        const parsedDate = parseHebrewDate(dateStr);
+
+        if (parsedDate) {
+          if (!latestDate || parsedDate > latestDate) latestDate = parsedDate;
+          if (!earliestDate || parsedDate < earliestDate) earliestDate = parsedDate;
+        }
+
+        const rowObj = {
+          rawIndex: r,
+          id: colMap.id !== -1 && row[colMap.id] ? String(row[colMap.id]).trim() : String(parsedRows.length + 1),
+          teacher: colMap.teacher !== -1 ? String(row[colMap.teacher] || '').trim() : '',
+          subject: colMap.subject !== -1 ? String(row[colMap.subject] || 'כללי').trim() : 'כללי',
+          dateStr: dateStr,
+          dateObj: parsedDate,
+          lessonNum: colMap.lessonNum !== -1 ? String(row[colMap.lessonNum] || '').trim() : '-',
+          lessonTopic: colMap.lessonTopic !== -1 ? String(row[colMap.lessonTopic] || '').trim() : '-',
+          studentId: colMap.studentId !== -1 ? String(row[colMap.studentId] || '').trim() : '',
+          studentName: studentName || 'לא צוין',
+          gradeLevel: colMap.gradeLevel !== -1 ? String(row[colMap.gradeLevel] || '').trim() : '',
+          gradeClass: colMap.gradeClass !== -1 ? String(row[colMap.gradeClass] || '').trim() : '',
+          eventType: eventType || 'אחר',
+          justification: colMap.justification !== -1 ? String(row[colMap.justification] || 'ללא הערות').trim() : 'ללא הערות',
+          justifiedBy: colMap.justifiedBy !== -1 ? String(row[colMap.justifiedBy] || '').trim() : ''
+        };
+
+        // Classify event severity / type for automatic highlighting & insights
+        rowObj.category = classifyEventType(rowObj.eventType);
+
+        parsedRows.push(rowObj);
+      }
+
+      if (parsedRows.length === 0) {
+        showError('אין רשומות', 'לא אותרו שורות נתונים תקינות בקובץ.');
+        return;
+      }
+
+      // Store in state
+      state.rawRows = parsedRows;
+      state.minDate = earliestDate;
+      state.maxDate = latestDate;
+      state.markedRowIds.clear();
+      state.activeInsight = null;
+      state.searchQuery = '';
+      state.currentPage = 1;
+
+      // Populate subject dropdown
+      populateSubjectDropdown();
+
+      // Show dashboard
+      document.getElementById('uploadSection').classList.add('hidden');
+      document.getElementById('dashboardSection').classList.remove('hidden');
+      document.getElementById('btnChangeFile').classList.remove('hidden');
+
+      // Apply initial filters & render
+      applyFiltersAndRender();
+    }
+
+    /**
+     * Parses DD/MM/YYYY into a JavaScript Date object.
+     * Handles timestamps, slashes, dashes, and periods.
+     */
+    function parseHebrewDate(str) {
+      if (!str) return null;
+      // Handle Date instances already parsed by SheetJS
+      if (str instanceof Date && !isNaN(str)) return str;
+
+      const cleaned = String(str).trim().split(' ')[0]; // Strip time if present
+      const parts = cleaned.split(/[\/\-\.]/);
+
+      if (parts.length === 3) {
+        let day, month, year;
+        if (parts[0].length === 4) {
+          // YYYY-MM-DD
+          year = parseInt(parts[0], 10);
+          month = parseInt(parts[1], 10) - 1;
+          day = parseInt(parts[2], 10);
+        } else {
+          // DD/MM/YYYY
+          day = parseInt(parts[0], 10);
+          month = parseInt(parts[1], 10) - 1;
+          year = parseInt(parts[2], 10);
+          if (year < 100) year += 2000;
+        }
+
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Classifies events into categories for styling and math:
+     * - 'severe': הפרעה, חוסר תיפקוד, אי הכנת שיעורי בית
+     * - 'absence': חיסור
+     * - 'tardiness': אחור / איחור
+     * - 'positive': מחמאת השגים, מחמאת התנהגות, שבח
+     * - 'neutral': אחר
+     */
+    function classifyEventType(typeStr) {
+      const s = typeStr.toLowerCase();
+      if (s.includes('הפרעה') || s.includes('חוסר תיפקוד') || s.includes('אי הכנת') || s.includes('ש"ב') || s.includes('ש\'\'ב') || s.includes('משמעת')) {
+        return 'severe';
+      }
+      if (s.includes('חיסור')) {
+        return 'absence';
+      }
+      if (s.includes('אחור') || s.includes('איחור')) {
+        return 'tardiness';
+      }
+      if (s.includes('מחמא') || s.includes('השג') || s.includes('הישג') || s.includes('חיובי') || s.includes('הצטיינות') || s.includes('שבח')) {
+        return 'positive';
+      }
+      return 'neutral';
+    }
+
+    function showError(title, msg) {
+      const banner = document.getElementById('uploadError');
+      document.getElementById('errorTitle').textContent = title;
+      document.getElementById('errorMessage').textContent = msg;
+      banner.classList.remove('hidden');
+    }
+
+    function hideError() {
+      document.getElementById('uploadError').classList.add('hidden');
+    }
+
+    function resetFile() {
+      document.getElementById('uploadSection').classList.remove('hidden');
+      document.getElementById('dashboardSection').classList.add('hidden');
+      document.getElementById('btnChangeFile').classList.add('hidden');
+      document.getElementById('fileInput').value = '';
+    }
+
+    // ==========================================
+    // 3. SUBJECT DROPDOWN & TIME FILTERS
+    // ==========================================
+
+    function populateSubjectDropdown() {
+      const select = document.getElementById('subjectFilterSelect');
+      const subjects = Array.from(new Set(state.rawRows.map(r => r.subject).filter(Boolean))).sort();
+      
+      select.innerHTML = '<option value="ALL">כל המקצועות (' + state.rawRows.length + ')</option>';
+      subjects.forEach(sub => {
+        const count = state.rawRows.filter(r => r.subject === sub).length;
+        const opt = document.createElement('option');
+        opt.value = sub;
+        opt.textContent = `${sub} (${count})`;
+        select.appendChild(opt);
+      });
+      select.value = 'ALL';
+    }
+
+    function handleSubjectChange(val) {
+      state.subjectFilter = val;
+      state.currentPage = 1;
+      applyFiltersAndRender();
+    }
+
+    function setTimeFilter(filterType) {
+      state.timeFilter = filterType;
+      state.currentPage = 1;
+
+      // Update button visual styles
+      document.querySelectorAll('.time-filter-btn').forEach(btn => {
+        if (btn.getAttribute('data-time-filter') === filterType) {
+          btn.className = 'time-filter-btn px-3 py-1.5 rounded-lg font-bold bg-white text-indigo-700 shadow-sm border border-slate-200 transition-all';
+        } else {
+          btn.className = 'time-filter-btn px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition-all';
+        }
+      });
+
+      applyFiltersAndRender();
+    }
+
+    // ==========================================
+    // 4. INSIGHTS GENERATION ENGINE (100% MATH)
+    // ==========================================
+
+    /**
+     * Generates accurate mathematical insights based on the currently time & subject-filtered data.
+     */
+    function generateInsights(dataset) {
+      const grid = document.getElementById('insightsGrid');
+      grid.innerHTML = '';
+
+      if (dataset.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full py-8 text-center text-slate-400 text-sm">
+            אין נתונים זמינים לחישוב תובנות עבור הסינון הנבחר.
+          </div>
+        `;
+        return;
+      }
+
+      // 1. TOP ABSENT STUDENTS (תלמידים עם הכי הרבה חיסורים)
+      const absenceCounts = {};
+      dataset.filter(r => r.category === 'absence').forEach(r => {
+        absenceCounts[r.studentName] = (absenceCounts[r.studentName] || 0) + 1;
+      });
+      const sortedAbsences = Object.entries(absenceCounts).sort((a, b) => b[1] - a[1]);
+      const topAbsence = sortedAbsences.slice(0, 3);
+      const totalAbsences = sortedAbsences.reduce((acc, curr) => acc + curr[1], 0);
+
+      // 2. TOP TARDY STUDENTS (תלמידים עם הכי הרבה איחורים)
+      const tardyCounts = {};
+      dataset.filter(r => r.category === 'tardiness').forEach(r => {
+        tardyCounts[r.studentName] = (tardyCounts[r.studentName] || 0) + 1;
+      });
+      const sortedTardy = Object.entries(tardyCounts).sort((a, b) => b[1] - a[1]);
+      const topTardy = sortedTardy.slice(0, 3);
+      const totalTardy = sortedTardy.reduce((acc, curr) => acc + curr[1], 0);
+
+      // 3. DISRUPTION HOTSPOTS (מוקדי הפרעות ואירועי משמעת)
+      const severeRows = dataset.filter(r => r.category === 'severe');
+      const subjectDisruptions = {};
+      const lessonDisruptions = {};
+
+      severeRows.forEach(r => {
+        subjectDisruptions[r.subject] = (subjectDisruptions[r.subject] || 0) + 1;
+        if (r.lessonNum && r.lessonNum !== '-') {
+          lessonDisruptions[r.lessonNum] = (lessonDisruptions[r.lessonNum] || 0) + 1;
+        }
+      });
+
+      const topDisruptiveSubject = Object.entries(subjectDisruptions).sort((a, b) => b[1] - a[1])[0];
+      const topDisruptiveLesson = Object.entries(lessonDisruptions).sort((a, b) => b[1] - a[1])[0];
+
+      // 4. POSITIVE HIGHLIGHTS (נקודות אור ומחמאות)
+      const positiveRows = dataset.filter(r => r.category === 'positive');
+      const positiveCounts = {};
+      positiveRows.forEach(r => {
+        positiveCounts[r.studentName] = (positiveCounts[r.studentName] || 0) + 1;
+      });
+      const sortedPositive = Object.entries(positiveCounts).sort((a, b) => b[1] - a[1]);
+      const topPositive = sortedPositive.slice(0, 3);
+      const totalPositive = positiveRows.length;
+
+      // 5. ATTENDANCE HOTSPOT LESSON (שיעור מועד לחיסורים/איחורים)
+      const lessonAttendanceIssues = {};
+      dataset.filter(r => r.category === 'absence' || r.category === 'tardiness').forEach(r => {
+        const key = `שיעור ${r.lessonNum} (${r.subject})`;
+        lessonAttendanceIssues[key] = (lessonAttendanceIssues[key] || 0) + 1;
+      });
+      const topAttendanceIssueLesson = Object.entries(lessonAttendanceIssues).sort((a, b) => b[1] - a[1])[0];
+
+      // --- RENDER INSIGHT CARDS ---
+
+      // CARD 1: Absences
+      const card1 = document.createElement('div');
+      card1.className = 'insight-card group relative bg-gradient-to-b from-orange-50/60 to-white hover:to-orange-50/80 border border-orange-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
+      card1.onclick = () => {
+        applyInsightFilter('category', 'absence', 'כל החיסורים בכיתה');
+      };
+      
+      let absenceListHtml = topAbsence.length > 0 
+        ? topAbsence.map(([name, count], i) => `
+            <div class="flex justify-between items-center text-xs py-1.5 px-2 rounded-lg border-b border-orange-100 last:border-0 hover:bg-orange-100/80 transition-colors" onclick="event.stopPropagation(); applyInsightFilter('absences', '${escapeHtml(name)}', 'חיסורים: ${escapeHtml(name)}')">
+              <span class="font-medium text-slate-800">${i+1}. ${escapeHtml(name)}</span>
+              <span class="font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">${count} חיסורים</span>
+            </div>
+          `).join('')
+        : '<p class="text-xs text-slate-500 py-2">אין חיסורים בטווח זה</p>';
+
+      card1.innerHTML = `
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-orange-700 uppercase tracking-wider bg-orange-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+              <span>🚫</span> מובילי חיסורים
+            </span>
+            <span class="text-xs font-bold text-slate-500">סה"כ ${totalAbsences}</span>
+          </div>
+          <div class="space-y-1 my-2">
+            ${absenceListHtml}
+          </div>
+        </div>
+        <div class="mt-3 pt-2.5 border-t border-orange-100 flex items-center justify-between text-xs font-semibold text-orange-700 group-hover:text-orange-900">
+          <span>הצג את כל החיסורים בטבלה</span>
+          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+        </div>
+      `;
+      grid.appendChild(card1);
+
+
+      // CARD 2: Tardiness
+      const card2 = document.createElement('div');
+      card2.className = 'insight-card group relative bg-gradient-to-b from-amber-50/60 to-white hover:to-amber-50/80 border border-amber-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
+      card2.onclick = () => {
+        applyInsightFilter('category', 'tardiness', 'כל האיחורים בכיתה');
+      };
+
+      let tardyListHtml = topTardy.length > 0 
+        ? topTardy.map(([name, count], i) => `
+            <div class="flex justify-between items-center text-xs py-1.5 px-2 rounded-lg border-b border-amber-100 last:border-0 hover:bg-amber-100/80 transition-colors" onclick="event.stopPropagation(); applyInsightFilter('tardy', '${escapeHtml(name)}', 'איחורים: ${escapeHtml(name)}')">
+              <span class="font-medium text-slate-800">${i+1}. ${escapeHtml(name)}</span>
+              <span class="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">${count} איחורים</span>
+            </div>
+          `).join('')
+        : '<p class="text-xs text-slate-500 py-2">אין איחורים בטווח זה</p>';
+
+      card2.innerHTML = `
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-amber-800 uppercase tracking-wider bg-amber-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+              <span>⏰</span> מובילי איחורים
+            </span>
+            <span class="text-xs font-bold text-slate-500">סה"כ ${totalTardy}</span>
+          </div>
+          <div class="space-y-1 my-2">
+            ${tardyListHtml}
+          </div>
+        </div>
+        <div class="mt-3 pt-2.5 border-t border-amber-100 flex items-center justify-between text-xs font-semibold text-amber-800 group-hover:text-amber-900">
+          <span>הצג את כל האיחורים בטבלה</span>
+          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+        </div>
+      `;
+      grid.appendChild(card2);
+
+
+      // CARD 3: Disruption Hotspot
+      const card3 = document.createElement('div');
+      card3.className = 'insight-card group relative bg-gradient-to-b from-rose-50/60 to-white hover:to-rose-50/80 border border-rose-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
+      
+      let hotspotContent = '';
+      if (topDisruptiveSubject && topDisruptiveSubject[1] > 0) {
+        const pct = Math.round((topDisruptiveSubject[1] / (severeRows.length || 1)) * 100);
+        hotspotContent = `
+          <div class="text-sm font-bold text-rose-900 mb-1">
+            ריבוי אירועים ב${escapeHtml(topDisruptiveSubject[0])}
+          </div>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            נרשמו <span class="font-bold text-rose-700">${topDisruptiveSubject[1]}</span> אירועי משמעת חריגים (${pct}% מכלל אירועי ההפרעה).
+            ${topDisruptiveLesson ? `<br><span class="text-slate-500">מוקד עיקרי: שיעור ${escapeHtml(topDisruptiveLesson[0])} (${topDisruptiveLesson[1]} מקרים)</span>` : ''}
+          </p>
+        `;
+        card3.onclick = () => {
+          applyInsightFilter('disruptiveSubject', topDisruptiveSubject[0], `אירועי משמעת ב${topDisruptiveSubject[0]}`);
+        };
+      } else {
+        hotspotContent = `
+          <div class="text-xs text-slate-500 py-2">
+            לא נרשמו אירועי הפרעה או משמעת חמורים בטווח שנבחר.
+          </div>
+        `;
+        card3.onclick = () => {
+          applyInsightFilter('category', 'severe', 'אירועי משמעת והפרעות');
+        };
+      }
+
+      card3.innerHTML = `
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-rose-800 uppercase tracking-wider bg-rose-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+              <span>⚠️</span> מוקד הפרעות ומשמעת
+            </span>
+            <span class="text-xs font-bold text-rose-600">${severeRows.length} אירועים</span>
+          </div>
+          <div class="my-2">
+            ${hotspotContent}
+          </div>
+        </div>
+        <div class="mt-3 pt-2.5 border-t border-rose-100 flex items-center justify-between text-xs font-semibold text-rose-700 group-hover:text-rose-900">
+          <span>הצג אירועי משמעת בטבלה</span>
+          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+        </div>
+      `;
+      grid.appendChild(card3);
+
+
+      // CARD 4: Positive Highlights (נקודות אור)
+      const card4 = document.createElement('div');
+      card4.className = 'insight-card group relative bg-gradient-to-b from-emerald-50/60 to-white hover:to-emerald-50/80 border border-emerald-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
+      card4.onclick = () => {
+        applyInsightFilter('category', 'positive', 'כל נקודות האור והמחמאות');
+      };
+
+      let positiveListHtml = topPositive.length > 0 
+        ? topPositive.map(([name, count], i) => `
+            <div class="flex justify-between items-center text-xs py-1.5 px-2 rounded-lg border-b border-emerald-100 last:border-0 hover:bg-emerald-100/80 transition-colors" onclick="event.stopPropagation(); applyInsightFilter('positiveStudent', '${escapeHtml(name)}', 'מחמאות: ${escapeHtml(name)}')">
+              <span class="font-medium text-slate-800">${i+1}. ${escapeHtml(name)}</span>
+              <span class="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">${count} מחמאות</span>
+            </div>
+          `).join('')
+        : '<p class="text-xs text-slate-500 py-2">אין מחמאות שנרשמו בטווח זה</p>';
+
+      card4.innerHTML = `
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider bg-emerald-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+              <span>🌟</span> נקודות אור והישגים
+            </span>
+            <span class="text-xs font-bold text-emerald-600">סה"כ ${totalPositive}</span>
+          </div>
+          <div class="space-y-1 my-2">
+            ${positiveListHtml}
+          </div>
+        </div>
+        <div class="mt-3 pt-2.5 border-t border-emerald-100 flex items-center justify-between text-xs font-semibold text-emerald-700 group-hover:text-emerald-900">
+          <span>הצג את כל המחמאות בטבלה</span>
+          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+        </div>
+      `;
+      grid.appendChild(card4);
+    }
+
+    /**
+     * Filters table by an insight card click.
+     * Guaranteed 100% mathematical accuracy.
+     */
+    function applyInsightFilter(type, value, label) {
+      state.activeInsight = { type, value, label };
+      state.currentPage = 1;
+
+      // Show banner
+      const banner = document.getElementById('activeInsightBanner');
+      document.getElementById('activeInsightDesc').textContent = label;
+      banner.classList.remove('hidden');
+
+      applyFiltersAndRender();
+
+      // Scroll smoothly to table
+      document.getElementById('dataTable').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function clearInsightFilter() {
+      state.activeInsight = null;
+      document.getElementById('activeInsightBanner').classList.add('hidden');
+      applyFiltersAndRender();
+    }
+
+    // ==========================================
+    // 5. TABLE FILTERING, SORTING & RENDERING
+    // ==========================================
+
+    function applyFiltersAndRender() {
+      let rows = [...state.rawRows];
+
+      // 1. Time Filter
+      if (state.timeFilter !== 'all') {
+        // Find reference date: either maxDate from file or current system time
+        const refDate = state.maxDate ? new Date(state.maxDate) : new Date();
+        
+        if (state.timeFilter === 'week') {
+          const weekAgo = new Date(refDate);
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          rows = rows.filter(r => r.dateObj && r.dateObj >= weekAgo && r.dateObj <= refDate);
+        } else if (state.timeFilter === 'month') {
+          const monthAgo = new Date(refDate);
+          monthAgo.setDate(monthAgo.getDate() - 30);
+          rows = rows.filter(r => r.dateObj && r.dateObj >= monthAgo && r.dateObj <= refDate);
+        } else if (state.timeFilter === 'year') {
+          // Israeli School Year starts Sep 1st
+          const year = refDate.getMonth() >= 8 ? refDate.getFullYear() : refDate.getFullYear() - 1;
+          const startOfYear = new Date(year, 8, 1); // 1st September
+          rows = rows.filter(r => r.dateObj && r.dateObj >= startOfYear);
+        }
+      }
+
+      // 2. Subject Filter
+      if (state.subjectFilter !== 'ALL') {
+        rows = rows.filter(r => r.subject === state.subjectFilter);
+      }
+
+      // Generate insights based on time + subject filtered data (before search & insight drill-down)
+      generateInsights(rows);
+
+      // 3. Insight Drill-Down Filter
+      if (state.activeInsight) {
+        const { type, value } = state.activeInsight;
+        if (type === 'absences') {
+          rows = rows.filter(r => r.category === 'absence' && r.studentName === value);
+        } else if (type === 'tardy') {
+          rows = rows.filter(r => r.category === 'tardiness' && r.studentName === value);
+        } else if (type === 'positiveStudent') {
+          rows = rows.filter(r => r.category === 'positive' && r.studentName === value);
+        } else if (type === 'disruptiveSubject') {
+          rows = rows.filter(r => r.category === 'severe' && r.subject === value);
+        } else if (type === 'category') {
+          rows = rows.filter(r => r.category === value);
+        }
+      }
+
+      // 4. Marked Only Filter
+      if (state.showMarkedOnly) {
+        rows = rows.filter(r => state.markedRowIds.has(r.id));
+      }
+
+      // 5. Search Query Filter
+      if (state.searchQuery) {
+        const q = state.searchQuery.toLowerCase();
+        rows = rows.filter(r => {
+          return r.studentName.toLowerCase().includes(q) ||
+                 r.eventType.toLowerCase().includes(q) ||
+                 r.subject.toLowerCase().includes(q) ||
+                 r.teacher.toLowerCase().includes(q) ||
+                 r.lessonTopic.toLowerCase().includes(q) ||
+                 (r.gradeClass && r.gradeClass.includes(q)) ||
+                 (r.studentId && r.studentId.includes(q));
+        });
+      }
+
+      // 6. Sorting
+      rows.sort((a, b) => {
+        let valA = a[state.sortColumn];
+        let valB = b[state.sortColumn];
+
+        // Specific sort for dates
+        if (state.sortColumn === 'date') {
+          valA = a.dateObj ? a.dateObj.getTime() : 0;
+          valB = b.dateObj ? b.dateObj.getTime() : 0;
+        } else if (state.sortColumn === 'id' || state.sortColumn === 'lessonNum') {
+          valA = parseInt(valA, 10) || 0;
+          valB = parseInt(valB, 10) || 0;
+        } else {
+          valA = String(valA || '').toLowerCase();
+          valB = String(valB || '').toLowerCase();
+        }
+
+        if (valA < valB) return state.sortAsc ? -1 : 1;
+        if (valA > valB) return state.sortAsc ? 1 : -1;
+        return 0;
+      });
+
+      state.filteredRows = rows;
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tableBody');
+      const emptyState = document.getElementById('tableEmptyState');
+      const countEl = document.getElementById('tableRecordCount');
+
+      // Update marked count badge
+      const markedBadge = document.getElementById('markedCountBadge');
+      markedBadge.textContent = state.markedRowIds.size;
+      
+      const clearMarksBtn = document.getElementById('clearMarksBtn');
+      if (state.markedRowIds.size > 0) {
+        clearMarksBtn.classList.remove('hidden');
+      } else {
+        clearMarksBtn.classList.add('hidden');
+      }
+
+      if (state.filteredRows.length === 0) {
+        tbody.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        countEl.textContent = `מציג 0 מתוך ${state.rawRows.length} רשומות`;
+        updatePagination(0);
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+
+      // Pagination slice
+      const total = state.filteredRows.length;
+      let pagedRows = state.filteredRows;
+      let totalPages = 1;
+
+      if (state.pageSize !== 'all') {
+        const size = parseInt(state.pageSize, 10);
+        totalPages = Math.ceil(total / size) || 1;
+        if (state.currentPage > totalPages) state.currentPage = totalPages;
+        const start = (state.currentPage - 1) * size;
+        pagedRows = state.filteredRows.slice(start, start + size);
+      }
+
+      countEl.textContent = `מציג ${pagedRows.length} מתוך ${total} רשומות (מתוך ${state.rawRows.length} בקובץ)`;
+      updatePagination(totalPages);
+
+      // Build rows HTML
+      const html = pagedRows.map(row => {
+        const isMarked = state.markedRowIds.has(row.id);
+        
+        // Automatic Highlighting Styles:
+        // - Severe: soft red background
+        // - Absence: soft orange background
+        // - Tardiness: soft amber/yellow background
+        // - Positive: soft emerald/green background
+        let rowClass = 'hover:bg-slate-50 transition-colors cursor-pointer ';
+        let badgeHtml = '';
+
+        if (row.category === 'severe') {
+          rowClass = 'bg-rose-50/70 hover:bg-rose-100/70 border-r-4 border-r-rose-500 ';
+          badgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">${escapeHtml(row.eventType)}</span>`;
+        } else if (row.category === 'absence') {
+          rowClass = 'bg-orange-50/70 hover:bg-orange-100/70 border-r-4 border-r-orange-400 ';
+          badgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200">${escapeHtml(row.eventType)}</span>`;
+        } else if (row.category === 'tardiness') {
+          rowClass = 'bg-amber-50/70 hover:bg-amber-100/70 border-r-4 border-r-amber-400 ';
+          badgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">${escapeHtml(row.eventType)}</span>`;
+        } else if (row.category === 'positive') {
+          rowClass = 'bg-emerald-50/70 hover:bg-emerald-100/70 border-r-4 border-r-emerald-500 ';
+          badgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">${escapeHtml(row.eventType)}</span>`;
+        } else {
+          badgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">${escapeHtml(row.eventType)}</span>`;
+        }
+
+        if (isMarked) {
+          rowClass += ' marked-row';
+        }
+
+        return `
+          <tr class="${rowClass}" onclick="toggleRowMark('${escapeHtml(row.id)}')">
+            <td class="py-3 px-3 text-center" onclick="event.stopPropagation(); toggleRowMark('${escapeHtml(row.id)}')">
+              <button 
+                class="w-7 h-7 rounded-lg flex items-center justify-center transition-all ${isMarked ? 'bg-amber-400 text-amber-950 scale-110 shadow-sm' : 'text-slate-300 hover:text-amber-500 hover:bg-amber-50'}"
+                title="${isMarked ? 'הסר סימון מרקר' : 'סמן שורה במרקר לדיון'}"
+              >
+                ⭐
+              </button>
+            </td>
+            <td class="py-3 px-3 text-slate-500 font-mono text-xs">${escapeHtml(row.id)}</td>
+            <td class="py-3 px-3 whitespace-nowrap text-slate-700 font-medium">${escapeHtml(row.dateStr)}</td>
+            <td class="py-3 px-2.5 text-center text-slate-600 font-mono">${escapeHtml(row.lessonNum)}</td>
+            <td class="py-3 px-3 font-bold text-slate-900 flex items-center gap-1.5">
+              <span>${escapeHtml(row.studentName)}</span>
+              ${isMarked ? '<span class="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-semibold no-print">מסומן</span>' : ''}
+            </td>
+            <td class="py-3 px-2.5 text-center text-slate-600">${escapeHtml(row.gradeLevel ? row.gradeLevel + '\'' : '')}${escapeHtml(row.gradeClass)}</td>
+            <td class="py-3 px-3 text-slate-800 font-semibold">${escapeHtml(row.subject)}</td>
+            <td class="py-3 px-3">${badgeHtml}</td>
+            <td class="py-3 px-3 text-slate-600 max-w-xs truncate" title="${escapeHtml(row.lessonTopic)}">${escapeHtml(row.lessonTopic)}</td>
+            <td class="py-3 px-3 text-slate-700 whitespace-nowrap">${escapeHtml(row.teacher)}</td>
+            <td class="py-3 px-3 text-xs text-slate-500">
+              <div>${escapeHtml(row.justification)}</div>
+              ${row.justifiedBy ? `<div class="text-[11px] text-indigo-600 font-semibold">אושר ע"י: ${escapeHtml(row.justifiedBy)}</div>` : ''}
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      tbody.innerHTML = html;
+    }
+
+    // Toggle manual marker highlight
+    function toggleRowMark(rowId) {
+      if (state.markedRowIds.has(rowId)) {
+        state.markedRowIds.delete(rowId);
+      } else {
+        state.markedRowIds.add(rowId);
+      }
+      renderTable();
+    }
+
+    function toggleMarkedOnlyFilter() {
+      state.showMarkedOnly = !state.showMarkedOnly;
+      const btn = document.getElementById('filterMarkedBtn');
+      if (state.showMarkedOnly) {
+        btn.classList.add('ring-2', 'ring-amber-500', 'bg-amber-200');
+      } else {
+        btn.classList.remove('ring-2', 'ring-amber-500', 'bg-amber-200');
+      }
+      applyFiltersAndRender();
+    }
+
+    function clearAllMarks() {
+      state.markedRowIds.clear();
+      state.showMarkedOnly = false;
+      document.getElementById('filterMarkedBtn').classList.remove('ring-2', 'ring-amber-500', 'bg-amber-200');
+      applyFiltersAndRender();
+    }
+
+    // Search bar logic
+    function handleSearch(val) {
+      state.searchQuery = val.trim();
+      state.currentPage = 1;
+      const clearBtn = document.getElementById('clearSearchBtn');
+      if (state.searchQuery) {
+        clearBtn.classList.remove('hidden');
+      } else {
+        clearBtn.classList.add('hidden');
+      }
+      applyFiltersAndRender();
+    }
+
+    function clearSearch() {
+      document.getElementById('tableSearchInput').value = '';
+      handleSearch('');
+    }
+
+    // Sorting logic
+    function sortTable(column) {
+      if (state.sortColumn === column) {
+        state.sortAsc = !state.sortAsc;
+      } else {
+        state.sortColumn = column;
+        state.sortAsc = true;
+      }
+
+      // Update UI sort arrows
+      document.querySelectorAll('.sort-icon').forEach(el => el.textContent = '↕');
+      const activeSortIcon = document.getElementById(`sort-${column}`);
+      if (activeSortIcon) {
+        activeSortIcon.textContent = state.sortAsc ? '▲' : '▼';
+      }
+
+      applyFiltersAndRender();
+    }
+
+    // Pagination logic
+    function updatePagination(totalPages) {
+      document.getElementById('pageIndicator').textContent = `${state.currentPage} / ${totalPages}`;
+      document.getElementById('prevPageBtn').disabled = state.currentPage <= 1;
+      document.getElementById('nextPageBtn').disabled = state.currentPage >= totalPages;
+    }
+
+    function changePage(delta) {
+      state.currentPage += delta;
+      renderTable();
+    }
+
+    function changePageSize(val) {
+      state.pageSize = val;
+      state.currentPage = 1;
+      renderTable();
+    }
+
+    function resetAllFilters() {
+      state.timeFilter = 'all';
+      state.subjectFilter = 'ALL';
+      state.searchQuery = '';
+      state.activeInsight = null;
+      state.showMarkedOnly = false;
+      document.getElementById('tableSearchInput').value = '';
+      document.getElementById('clearSearchBtn').classList.add('hidden');
+      document.getElementById('subjectFilterSelect').value = 'ALL';
+      document.getElementById('activeInsightBanner').classList.add('hidden');
+      document.getElementById('filterMarkedBtn').classList.remove('ring-2', 'ring-amber-500', 'bg-amber-200');
+      
+      // Reset time buttons UI
+      setTimeFilter('all');
+    }
+
+    // ==========================================
+    // 6. EXPORT TO EXCEL / CSV (LOCAL)
+    // ==========================================
+
+    function exportFilteredToExcel() {
+      if (!state.filteredRows || state.filteredRows.length === 0) return;
+
+      const exportData = state.filteredRows.map(r => ({
+        "מס'": r.id,
+        "תאריך": r.dateStr,
+        "מספר שיעור": r.lessonNum,
+        "שם התלמיד": r.studentName,
+        "ת.ז": r.studentId,
+        "שכבה": r.gradeLevel,
+        "כיתה": r.gradeClass,
+        "מקצוע": r.subject,
+        "סוג האירוע": r.eventType,
+        "נושא השיעור": r.lessonTopic,
+        "שם המורה": r.teacher,
+        "הצדקה": r.justification,
+        "הוצדק ע\"י": r.justifiedBy,
+        "סומן במרקר לדיון": state.markedRowIds.has(r.id) ? 'כן' : 'לא'
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "דוח מסונן");
+
+      const fileName = `דוח_אירועים_מסונן_${new Date().toISOString().slice(0,10)}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    }
+
+    // ==========================================
+    // 7. SAMPLE DEMO DATA LOADER (MASHOV Z'1)
+    // Preloaded realistic dataset based on actual PDF
+    // ==========================================
+
+    function loadSampleData() {
+      hideError();
+      
+      // Create identical format as SheetJS array of arrays with 3 header rows
+      const sampleAOA = [
+        ["ז1 - 01/09/2026 - 10/09/2026 - פירוט אירועי התנהגות"],
+        ["הופק על ידי מערכת משו\"ב - חספין"],
+        ["מס'", "שם המורה", "מקצוע", "תאריך", "מספר שיעור", "נושא השיעור", "ת.ז", "שם התלמיד", "שכבה", "כיתה", "סוג האירוע", "הצדקה", "הוצדק ע\"י"],
+        
+        // Exact rows matching the user's report
+        ["1", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "338573199", "אדרי יונדב", "ז", "1", "אחור", "ללא הערות", ""],
+        ["2", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "338573199", "אדרי יונדב", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["3", "ליאון מרדכי", "תפילת שחרית", "06/09/2026", "0", "תפילה", "338573199", "אדרי יונדב", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["4", "ניסמפור רויטל", "מתמטיקה", "06/09/2026", "2", "מערכת צירים", "338573199", "אדרי יונדב", "ז", "1", "אחור", "ללא הערות", ""],
+        ["5", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "338573199", "אדרי יונדב", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["6", "ליאון מרדכי", "תפילת שחרית", "07/09/2026", "0", "תפילה", "338573199", "אדרי יונדב", "ז", "1", "אחור", "ללא הערות", ""],
+        ["7", "ליאון מרדכי", "תפילת שחרית", "08/09/2026", "0", "תפילה", "338573199", "אדרי יונדב", "ז", "1", "חיסור", "אישור רפואי", "ליאון מרדכי"],
+        ["8", "ליאון מרדכי", "תפילת שחרית", "10/09/2026", "0", "תפילה", "338573199", "אדרי יונדב", "ז", "1", "חיסור", "ללא הערות", ""],
+        
+        ["9", "מרואני בנימין", "מתמטיקה", "06/09/2026", "2", "מערכת צירים", "335896460", "אלפרן זוהר שמחה", "ז", "1", "אחור", "ללא הערות", ""],
+        ["10", "ליאון מרדכי", "תפילת שחרית", "06/09/2026", "0", "תפילה", "335896460", "אלפרן זוהר שמחה", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["11", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "335896460", "אלפרן זוהר שמחה", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["12", "ליאון מרדכי", "תפילת שחרית", "08/09/2026", "0", "תפילה", "335896460", "אלפרן זוהר שמחה", "ז", "1", "חיסור", "אישור רפואי", "ליאון מרדכי"],
+        ["13", "ליאון מרדכי", "אמונה", "08/09/2026", "1", "עקרונות", "335896460", "אלפרן זוהר שמחה", "ז", "1", "חיסור", "אישור רפואי", "ליאון מרדכי"],
+        ["14", "ליאון מרדכי", "הסטוריה", "08/09/2026", "4", "רומא העתיקה", "335896460", "אלפרן זוהר שמחה", "ז", "1", "חיסור", "ללא הערות", ""],
+
+        ["15", "גלר יונתן", "גמרא עיון", "03/09/2026", "2", "בבא מציעא", "223187493", "בדיחי גלעד", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["16", "ליאון מרדכי", "תפילת שחרית", "06/09/2026", "0", "תפילה", "223187493", "בדיחי גלעד", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["17", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "223187493", "בדיחי גלעד", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["18", "ליאון מרדכי", "הסטוריה", "08/09/2026", "4", "רומא העתיקה", "223187493", "בדיחי גלעד", "ז", "1", "אחור", "אישור רפואי", "ליאון מרדכי"],
+        ["19", "ליאון מרדכי", "תפילת שחרית", "08/09/2026", "0", "תפילה", "223187493", "בדיחי גלעד", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+
+        ["20", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "337214993", "בן יוסף שחר", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["21", "ניסמפור רויטל", "מתמטיקה", "06/09/2026", "2", "מערכת צירים", "337214993", "בן יוסף שחר", "ז", "1", "אחור", "ללא הערות", ""],
+        ["22", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "337214993", "בן יוסף שחר", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["23", "ניסמפור רויטל", "מתמטיקה", "07/09/2026", "5", "מערכת צירים", "337214993", "בן יוסף שחר", "ז", "1", "אחור", "ללא הערות", ""],
+        ["24", "ליאון מרדכי", "תפילת שחרית", "08/09/2026", "0", "תפילה", "337214993", "בן יוסף שחר", "ז", "1", "חיסור", "אישור הורים", "ליאון מרדכי"],
+
+        ["25", "ליאון מרדכי", "תפילת שחרית", "06/09/2026", "0", "תפילה", "217190552", "בר כוכבא ישי", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["26", "גלר יונתן", "גמרא עיון", "07/09/2026", "2", "בבא מציעא", "217190552", "בר כוכבא ישי", "ז", "1", "אחור", "ללא הערות", ""],
+        ["27", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "217190552", "בר כוכבא ישי", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["28", "ליאון מרדכי", "תפילת שחרית", "08/09/2026", "0", "תפילה", "217190552", "בר כוכבא ישי", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+
+        ["29", "ליאון מרדכי", "תפילת שחרית", "06/09/2026", "0", "תפילה", "222855298", "גולדשטיין אלרואי", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["30", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "222855298", "גולדשטיין אלרואי", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["31", "ליאון מרדכי", "תפילת שחרית", "09/09/2026", "0", "תפילה", "222855298", "גולדשטיין אלרואי", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["32", "ליאון מרדכי", "תפילת שחרית", "10/09/2026", "0", "תפילה", "222855298", "גולדשטיין אלרואי", "ז", "1", "חיסור", "ללא הערות", ""],
+
+        ["40", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "220547590", "גלבנדורף יהודה", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["41", "ניסמפור רויטל", "מתמטיקה", "06/09/2026", "2", "מערכת צירים", "220547590", "גלבנדורף יהודה", "ז", "1", "אחור", "ללא הערות", ""],
+        ["42", "ניסמפור רויטל", "מתמטיקה", "06/09/2026", "2", "מערכת צירים", "220547590", "גלבנדורף יהודה", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["43", "ליאון מרדכי", "תפילת שחרית", "06/09/2026", "0", "תפילה", "220547590", "גלבנדורף יהודה", "ז", "1", "מחמאת התנהגות", "ללא הערות", ""],
+        ["44", "ליאון מרדכי", "תפילת מנחה", "07/09/2026", "10", "תפילה", "220547590", "גלבנדורף יהודה", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["45", "ניסמפור רויטל", "מתמטיקה", "07/09/2026", "5", "מערכת צירים", "220547590", "גלבנדורף יהודה", "ז", "1", "אחור", "ללא הערות", ""],
+        
+        ["63", "מצה אור", "מתמטיקה", "06/09/2026", "2", "משוואות", "338966989", "זגדון נווה", "ז", "1", "הפרעה", "ללא הערות", ""],
+        ["67", "ליאון מרדכי", "תפילת שחרית", "07/09/2026", "0", "תפילה", "338966989", "זגדון נווה", "ז", "1", "חיסור", "ללא הערות", ""],
+        ["68", "מצה אור", "מתמטיקה", "08/09/2026", "5", "משוואות", "338966989", "זגדון נווה", "ז", "1", "חוסר תיפקוד", "ללא הערות", ""],
+        ["77", "מצה אור", "מדעים", "06/09/2026", "8", "מערכת השמש", "338487127", "חסין יאיר", "ז", "1", "אי הכנת ש''ב", "ללא הערות", ""],
+        ["78", "מרואני בנימין", "מתמטיקה", "06/09/2026", "2", "גאומטריה", "338487127", "חסין יאיר", "ז", "1", "הפרעה", "ללא הערות", ""],
+        ["84", "מצה אור", "מתמטיקה", "07/09/2026", "5", "משוואות", "340700822", "טירי אורי", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["92", "מצה אור", "מתמטיקה", "07/09/2026", "5", "משוואות", "338558307", "כהן ידידיה מנחם", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["105", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "222705287", "סרבגולה אריה לייב", "ז", "1", "הפרעה", "ללא הערות", ""],
+        ["106", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "222705287", "סרבגולה אריה לייב", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["112", "ניסמפור רויטל", "מתמטיקה", "03/09/2026", "7", "מערכת צירים", "339079766", "פוקס תורן שליו", "ז", "1", "מחמאת השגים", "ללא הערות", ""],
+        ["113", "ניסמפור רויטל", "מתמטיקה", "06/09/2026", "2", "מערכת צירים", "339079766", "פוקס תורן שליו", "ז", "1", "מחמאת השגים", "ללא הערות", ""]
+      ];
+
+      processParsedAOA(sampleAOA);
+    }
+
+    // Helper: Escapes HTML to prevent XSS
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
