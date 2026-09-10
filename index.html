@@ -2349,9 +2349,19 @@
             <td class="py-3 px-3 text-slate-500 font-mono text-xs">${escapeHtml(row.id)}</td>
             <td class="py-3 px-3 whitespace-nowrap text-slate-700 font-medium">${escapeHtml(row.dateStr)}</td>
             <td class="py-3 px-2.5 text-center text-slate-600 font-mono">${escapeHtml(row.lessonNum)}</td>
-            <td class="py-3 px-3 font-bold text-slate-900 flex items-center gap-1.5">
-              <span>${escapeHtml(row.studentName)}</span>
-              ${isMarked ? '<span class="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-semibold no-print">מסומן</span>' : ''}
+            <td class="py-3 px-3 font-bold text-slate-900">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button 
+                  type="button"
+                  onclick="event.stopPropagation(); openStudentModal('${escapeHtml(row.studentName)}')" 
+                  class="text-right hover:text-indigo-600 transition-colors flex items-center gap-1 group font-bold"
+                  title="לחץ לצפייה בכרטיס תלמיד 360 וניסוח הודעה להורים"
+                >
+                  <span class="group-hover:underline underline-offset-2">${escapeHtml(row.studentName)}</span>
+                  <span class="text-[10px] text-indigo-700 bg-indigo-50 group-hover:bg-indigo-100 border border-indigo-200 px-1.5 py-0.5 rounded font-medium no-print transition-colors">כרטיס 🔍</span>
+                </button>
+                ${isMarked ? '<span class="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-semibold no-print">מסומן</span>' : ''}
+              </div>
             </td>
             <td class="py-3 px-2.5 text-center text-slate-600">${escapeHtml(row.gradeLevel ? row.gradeLevel + '\'' : '')}${escapeHtml(row.gradeClass)}</td>
             <td class="py-3 px-3 text-slate-800 font-semibold">${escapeHtml(row.subject)}</td>
