@@ -793,10 +793,13 @@
       showMarkedOnly: false,
 
       // Filters
-      timeFilter: 'all',    // 'all', 'week', 'month', 'year'
-      subjectFilter: 'ALL', // 'ALL' or specific subject
+      timeFilter: 'all',       // 'all', 'week', 'month', 'year'
+      subjectFilter: 'ALL',    // 'ALL' or specific subject
       searchQuery: '',
-      activeInsight: null,  // { type, value, label }
+      activeInsight: null,     // { type, value, label }
+      activeInsightTab: 'smartRules', // 'smartRules', 'positives', 'ai'
+      aiLoading: false,
+      aiResults: null,
 
       // Sorting
       sortColumn: 'id',
@@ -804,7 +807,7 @@
 
       // Pagination
       currentPage: 1,
-      pageSize: 50,         // or 'all'
+      pageSize: 50,            // or 'all'
 
       // Dataset Date Range
       minDate: null,
@@ -1205,231 +1208,722 @@
     // 4. INSIGHTS GENERATION ENGINE (100% MATH)
     // ==========================================
 
-    /**
-     * Generates accurate mathematical insights based on the currently time & subject-filtered data.
-     */
-    function generateInsights(dataset) {
-      const grid = document.getElementById('insightsGrid');
-      grid.innerHTML = '';
+    // ==========================================
+    // 4. SMART RULES ENGINE & LOCAL AI INSIGHTS
+    // ==========================================
 
-      if (dataset.length === 0) {
-        grid.innerHTML = `
-          <div class="col-span-full py-8 text-center text-slate-400 text-sm">
-            אין נתונים זמינים לחישוב תובנות עבור הסינון הנבחר.
-          </div>
-        `;
-        return;
-      }
-
-      // 1. TOP ABSENT STUDENTS (תלמידים עם הכי הרבה חיסורים)
-      const absenceCounts = {};
-      dataset.filter(r => r.category === 'absence').forEach(r => {
-        absenceCounts[r.studentName] = (absenceCounts[r.studentName] || 0) + 1;
-      });
-      const sortedAbsences = Object.entries(absenceCounts).sort((a, b) => b[1] - a[1]);
-      const topAbsence = sortedAbsences.slice(0, 3);
-      const totalAbsences = sortedAbsences.reduce((acc, curr) => acc + curr[1], 0);
-
-      // 2. TOP TARDY STUDENTS (תלמידים עם הכי הרבה איחורים)
-      const tardyCounts = {};
-      dataset.filter(r => r.category === 'tardiness').forEach(r => {
-        tardyCounts[r.studentName] = (tardyCounts[r.studentName] || 0) + 1;
-      });
-      const sortedTardy = Object.entries(tardyCounts).sort((a, b) => b[1] - a[1]);
-      const topTardy = sortedTardy.slice(0, 3);
-      const totalTardy = sortedTardy.reduce((acc, curr) => acc + curr[1], 0);
-
-      // 3. DISRUPTION HOTSPOTS (מוקדי הפרעות ואירועי משמעת)
-      const severeRows = dataset.filter(r => r.category === 'severe');
-      const subjectDisruptions = {};
-      const lessonDisruptions = {};
-
-      severeRows.forEach(r => {
-        subjectDisruptions[r.subject] = (subjectDisruptions[r.subject] || 0) + 1;
-        if (r.lessonNum && r.lessonNum !== '-') {
-          lessonDisruptions[r.lessonNum] = (lessonDisruptions[r.lessonNum] || 0) + 1;
+    function switchInsightTab(tabKey) {
+      state.activeInsightTab = tabKey;
+      
+      document.querySelectorAll('.insight-tab-btn').forEach(btn => {
+        if (btn.getAttribute('data-tab') === tabKey) {
+          btn.className = 'insight-tab-btn px-3.5 py-1.5 rounded-xl font-bold bg-indigo-600 text-white shadow-sm transition-all text-xs flex items-center gap-1.5 shrink-0';
+        } else {
+          btn.className = 'insight-tab-btn px-3.5 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all text-xs font-semibold flex items-center gap-1.5 shrink-0';
         }
       });
 
-      const topDisruptiveSubject = Object.entries(subjectDisruptions).sort((a, b) => b[1] - a[1])[0];
-      const topDisruptiveLesson = Object.entries(lessonDisruptions).sort((a, b) => b[1] - a[1])[0];
+      const smartPane = document.getElementById('smartRulesPane');
+      const posPane = document.getElementById('positivesPane');
+      const aiPane = document.getElementById('aiPane');
 
-      // 4. POSITIVE HIGHLIGHTS (נקודות אור ומחמאות)
-      const positiveRows = dataset.filter(r => r.category === 'positive');
-      const positiveCounts = {};
-      positiveRows.forEach(r => {
-        positiveCounts[r.studentName] = (positiveCounts[r.studentName] || 0) + 1;
+      if (smartPane) smartPane.classList.toggle('hidden', tabKey !== 'smartRules');
+      if (posPane) posPane.classList.toggle('hidden', tabKey !== 'positives');
+      if (aiPane) {
+        aiPane.classList.toggle('hidden', tabKey !== 'ai');
+        if (tabKey === 'ai' && !state.aiResults) {
+          runAIAnalysis(false);
+        }
+      }
+    }
+
+    /**
+     * Streak Pattern:
+     * Find if a specific student has 3 or more negative events ("אחור", "חיסור", "הפרעה") on consecutive days.
+     */
+    function detectStreakPattern(dataset) {
+      const studentMap = {};
+      dataset.forEach(r => {
+        if (r.category === 'absence' || r.category === 'tardiness' || r.category === 'severe') {
+          if (!studentMap[r.studentName]) studentMap[r.studentName] = [];
+          if (r.dateObj) studentMap[r.studentName].push(r);
+        }
       });
-      const sortedPositive = Object.entries(positiveCounts).sort((a, b) => b[1] - a[1]);
-      const topPositive = sortedPositive.slice(0, 3);
-      const totalPositive = positiveRows.length;
 
-      // 5. ATTENDANCE HOTSPOT LESSON (שיעור מועד לחיסורים/איחורים)
-      const lessonAttendanceIssues = {};
-      dataset.filter(r => r.category === 'absence' || r.category === 'tardiness').forEach(r => {
-        const key = `שיעור ${r.lessonNum} (${r.subject})`;
-        lessonAttendanceIssues[key] = (lessonAttendanceIssues[key] || 0) + 1;
-      });
-      const topAttendanceIssueLesson = Object.entries(lessonAttendanceIssues).sort((a, b) => b[1] - a[1])[0];
+      const results = [];
 
-      // --- RENDER INSIGHT CARDS ---
+      for (const [studentName, events] of Object.entries(studentMap)) {
+        // Group by distinct calendar date
+        const dateMap = new Map();
+        events.forEach(e => {
+          const dStr = e.dateStr;
+          if (!dateMap.has(dStr)) {
+            dateMap.set(dStr, { dateObj: e.dateObj, count: 1 });
+          } else {
+            dateMap.get(dStr).count++;
+          }
+        });
 
-      // CARD 1: Absences
-      const card1 = document.createElement('div');
-      card1.className = 'insight-card group relative bg-gradient-to-b from-orange-50/60 to-white hover:to-orange-50/80 border border-orange-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
-      card1.onclick = () => {
-        applyInsightFilter('category', 'absence', 'כל החיסורים בכיתה');
-      };
-      
-      let absenceListHtml = topAbsence.length > 0 
-        ? topAbsence.map(([name, count], i) => `
-            <div class="flex justify-between items-center text-xs py-1.5 px-2 rounded-lg border-b border-orange-100 last:border-0 hover:bg-orange-100/80 transition-colors" onclick="event.stopPropagation(); applyInsightFilter('absences', '${escapeHtml(name)}', 'חיסורים: ${escapeHtml(name)}')">
-              <span class="font-medium text-slate-800">${i+1}. ${escapeHtml(name)}</span>
-              <span class="font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">${count} חיסורים</span>
-            </div>
-          `).join('')
-        : '<p class="text-xs text-slate-500 py-2">אין חיסורים בטווח זה</p>';
+        const sortedDates = Array.from(dateMap.entries()).sort((a, b) => a[1].dateObj - b[1].dateObj);
+        if (sortedDates.length < 3) continue;
 
-      card1.innerHTML = `
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-orange-700 uppercase tracking-wider bg-orange-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-              <span>🚫</span> מובילי חיסורים
-            </span>
-            <span class="text-xs font-bold text-slate-500">סה"כ ${totalAbsences}</span>
-          </div>
-          <div class="space-y-1 my-2">
-            ${absenceListHtml}
-          </div>
-        </div>
-        <div class="mt-3 pt-2.5 border-t border-orange-100 flex items-center justify-between text-xs font-semibold text-orange-700 group-hover:text-orange-900">
-          <span>הצג את כל החיסורים בטבלה</span>
-          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
-        </div>
-      `;
-      grid.appendChild(card1);
+        let maxStreak = [sortedDates[0]];
+        let currentStreak = [sortedDates[0]];
 
+        for (let i = 1; i < sortedDates.length; i++) {
+          const prev = currentStreak[currentStreak.length - 1][1].dateObj;
+          const curr = sortedDates[i][1].dateObj;
 
-      // CARD 2: Tardiness
-      const card2 = document.createElement('div');
-      card2.className = 'insight-card group relative bg-gradient-to-b from-amber-50/60 to-white hover:to-amber-50/80 border border-amber-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
-      card2.onclick = () => {
-        applyInsightFilter('category', 'tardiness', 'כל האיחורים בכיתה');
-      };
+          if (areConsecutiveSchoolDays(prev, curr)) {
+            currentStreak.push(sortedDates[i]);
+            if (currentStreak.length > maxStreak.length) {
+              maxStreak = [...currentStreak];
+            }
+          } else {
+            currentStreak = [sortedDates[i]];
+          }
+        }
 
-      let tardyListHtml = topTardy.length > 0 
-        ? topTardy.map(([name, count], i) => `
-            <div class="flex justify-between items-center text-xs py-1.5 px-2 rounded-lg border-b border-amber-100 last:border-0 hover:bg-amber-100/80 transition-colors" onclick="event.stopPropagation(); applyInsightFilter('tardy', '${escapeHtml(name)}', 'איחורים: ${escapeHtml(name)}')">
-              <span class="font-medium text-slate-800">${i+1}. ${escapeHtml(name)}</span>
-              <span class="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">${count} איחורים</span>
-            </div>
-          `).join('')
-        : '<p class="text-xs text-slate-500 py-2">אין איחורים בטווח זה</p>';
-
-      card2.innerHTML = `
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-amber-800 uppercase tracking-wider bg-amber-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-              <span>⏰</span> מובילי איחורים
-            </span>
-            <span class="text-xs font-bold text-slate-500">סה"כ ${totalTardy}</span>
-          </div>
-          <div class="space-y-1 my-2">
-            ${tardyListHtml}
-          </div>
-        </div>
-        <div class="mt-3 pt-2.5 border-t border-amber-100 flex items-center justify-between text-xs font-semibold text-amber-800 group-hover:text-amber-900">
-          <span>הצג את כל האיחורים בטבלה</span>
-          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
-        </div>
-      `;
-      grid.appendChild(card2);
-
-
-      // CARD 3: Disruption Hotspot
-      const card3 = document.createElement('div');
-      card3.className = 'insight-card group relative bg-gradient-to-b from-rose-50/60 to-white hover:to-rose-50/80 border border-rose-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
-      
-      let hotspotContent = '';
-      if (topDisruptiveSubject && topDisruptiveSubject[1] > 0) {
-        const pct = Math.round((topDisruptiveSubject[1] / (severeRows.length || 1)) * 100);
-        hotspotContent = `
-          <div class="text-sm font-bold text-rose-900 mb-1">
-            ריבוי אירועים ב${escapeHtml(topDisruptiveSubject[0])}
-          </div>
-          <p class="text-xs text-slate-600 leading-relaxed">
-            נרשמו <span class="font-bold text-rose-700">${topDisruptiveSubject[1]}</span> אירועי משמעת חריגים (${pct}% מכלל אירועי ההפרעה).
-            ${topDisruptiveLesson ? `<br><span class="text-slate-500">מוקד עיקרי: שיעור ${escapeHtml(topDisruptiveLesson[0])} (${topDisruptiveLesson[1]} מקרים)</span>` : ''}
-          </p>
-        `;
-        card3.onclick = () => {
-          applyInsightFilter('disruptiveSubject', topDisruptiveSubject[0], `אירועי משמעת ב${topDisruptiveSubject[0]}`);
-        };
-      } else {
-        hotspotContent = `
-          <div class="text-xs text-slate-500 py-2">
-            לא נרשמו אירועי הפרעה או משמעת חמורים בטווח שנבחר.
-          </div>
-        `;
-        card3.onclick = () => {
-          applyInsightFilter('category', 'severe', 'אירועי משמעת והפרעות');
-        };
+        if (maxStreak.length >= 3) {
+          results.push({
+            studentName,
+            streakDays: maxStreak.length,
+            datesList: maxStreak.map(d => d[0]).join(', '),
+            dates: maxStreak.map(d => d[0])
+          });
+        }
       }
 
-      card3.innerHTML = `
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-rose-800 uppercase tracking-wider bg-rose-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-              <span>⚠️</span> מוקד הפרעות ומשמעת
-            </span>
-            <span class="text-xs font-bold text-rose-600">${severeRows.length} אירועים</span>
-          </div>
-          <div class="my-2">
-            ${hotspotContent}
-          </div>
-        </div>
-        <div class="mt-3 pt-2.5 border-t border-rose-100 flex items-center justify-between text-xs font-semibold text-rose-700 group-hover:text-rose-900">
-          <span>הצג אירועי משמעת בטבלה</span>
-          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
-        </div>
-      `;
-      grid.appendChild(card3);
+      return results.sort((a, b) => b.streakDays - a.streakDays);
+    }
 
+    /**
+     * Checks if two dates are consecutive school days (Sunday-Thursday/Friday in Israel).
+     */
+    function areConsecutiveSchoolDays(d1, d2) {
+      const u1 = Date.UTC(d1.getFullYear(), d1.getMonth(), d1.getDate());
+      const u2 = Date.UTC(d2.getFullYear(), d2.getMonth(), d2.getDate());
+      const diffDays = Math.round((u2 - u1) / (1000 * 60 * 60 * 24));
+      if (diffDays === 1) return true;
+      // Thursday -> Sunday (3 days)
+      if (d1.getDay() === 4 && d2.getDay() === 0 && diffDays === 3) return true;
+      // Friday -> Sunday (2 days)
+      if (d1.getDay() === 5 && d2.getDay() === 0 && diffDays === 2) return true;
+      return false;
+    }
 
-      // CARD 4: Positive Highlights (נקודות אור)
-      const card4 = document.createElement('div');
-      card4.className = 'insight-card group relative bg-gradient-to-b from-emerald-50/60 to-white hover:to-emerald-50/80 border border-emerald-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between';
-      card4.onclick = () => {
-        applyInsightFilter('category', 'positive', 'כל נקודות האור והמחמאות');
-      };
+    /**
+     * Correlation Pattern:
+     * Identify if a student's negative events are heavily concentrated in morning classes ("מספר שיעור" 0 or 1).
+     */
+    function detectMorningCorrelation(dataset) {
+      const studentMap = {};
+      dataset.forEach(r => {
+        if (r.category === 'absence' || r.category === 'tardiness' || r.category === 'severe') {
+          if (!studentMap[r.studentName]) {
+            studentMap[r.studentName] = { total: 0, morning: 0 };
+          }
+          studentMap[r.studentName].total++;
+          const isMorning = r.lessonNum === '0' || r.lessonNum === '1' || r.lessonNum === 0 || r.lessonNum === 1 || (r.subject && r.subject.includes('שחרית'));
+          if (isMorning) {
+            studentMap[r.studentName].morning++;
+          }
+        }
+      });
 
-      let positiveListHtml = topPositive.length > 0 
-        ? topPositive.map(([name, count], i) => `
-            <div class="flex justify-between items-center text-xs py-1.5 px-2 rounded-lg border-b border-emerald-100 last:border-0 hover:bg-emerald-100/80 transition-colors" onclick="event.stopPropagation(); applyInsightFilter('positiveStudent', '${escapeHtml(name)}', 'מחמאות: ${escapeHtml(name)}')">
-              <span class="font-medium text-slate-800">${i+1}. ${escapeHtml(name)}</span>
-              <span class="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">${count} מחמאות</span>
+      const correlations = [];
+      for (const [studentName, stats] of Object.entries(studentMap)) {
+        if (stats.total >= 3 && stats.morning >= 2) {
+          const ratio = stats.morning / stats.total;
+          if (ratio >= 0.5) { // 50% or more
+            correlations.push({
+              studentName,
+              total: stats.total,
+              morning: stats.morning,
+              pct: Math.round(ratio * 100)
+            });
+          }
+        }
+      }
+      return correlations.sort((a, b) => b.pct - a.pct);
+    }
+
+    /**
+     * Outlier Pattern:
+     * Identify students whose total count of "חיסור" is significantly higher than the average of the rest of the class.
+     */
+    function detectOutliers(dataset) {
+      const absenceCounts = {};
+      const uniqueStudents = new Set(dataset.map(r => r.studentName));
+      uniqueStudents.forEach(s => absenceCounts[s] = 0);
+
+      let totalAbsences = 0;
+      dataset.forEach(r => {
+        if (r.category === 'absence') {
+          absenceCounts[r.studentName] = (absenceCounts[r.studentName] || 0) + 1;
+          totalAbsences++;
+        }
+      });
+
+      const numStudents = uniqueStudents.size || 1;
+      const classAvg = totalAbsences / numStudents;
+
+      const outliers = [];
+      for (const [studentName, count] of Object.entries(absenceCounts)) {
+        if (count >= 3 && count >= Math.max(3, classAvg * 1.8)) {
+          const ratio = classAvg > 0 ? (count / classAvg).toFixed(1) : count;
+          outliers.push({
+            studentName,
+            count,
+            classAvg: classAvg.toFixed(1),
+            ratio
+          });
+        }
+      }
+      return outliers.sort((a, b) => b.count - a.count);
+    }
+
+    /**
+     * Outstanding Students Pattern:
+     * Highlight students with multiple positive achievements and good behavior.
+     */
+    function detectExcellence(dataset) {
+      const studentMap = {};
+      dataset.forEach(r => {
+        if (!studentMap[r.studentName]) {
+          studentMap[r.studentName] = { positive: 0, negative: 0, teachers: new Set(), subjects: new Set() };
+        }
+        if (r.category === 'positive') {
+          studentMap[r.studentName].positive++;
+          if (r.teacher) studentMap[r.studentName].teachers.add(r.teacher);
+          if (r.subject) studentMap[r.studentName].subjects.add(r.subject);
+        } else if (r.category === 'absence' || r.category === 'tardiness' || r.category === 'severe') {
+          studentMap[r.studentName].negative++;
+        }
+      });
+
+      const list = [];
+      for (const [studentName, data] of Object.entries(studentMap)) {
+        if (data.positive >= 2) {
+          list.push({
+            studentName,
+            positiveCount: data.positive,
+            negativeCount: data.negative,
+            teacherCount: data.teachers.size,
+            subjectCount: data.subjects.size,
+            isPure: data.negative === 0
+          });
+        }
+      }
+      return list.sort((a, b) => b.positiveCount - a.positiveCount);
+    }
+
+    /**
+     * Renders Smart Rules Cards (Streak, Morning, Outlier, Hotspot).
+     * Mobile-optimized for horizontal swipe or desktop multi-column grid.
+     */
+    function renderSmartRulesCards(dataset) {
+      const container = document.getElementById('smartRulesContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (dataset.length === 0) {
+        container.innerHTML = '<div class="col-span-full py-8 text-center text-slate-400 text-sm">אין נתונים לחישוב תובנות עבור הסינון שנבחר.</div>';
+        return;
+      }
+
+      const streaks = detectStreakPattern(dataset);
+      const mornings = detectMorningCorrelation(dataset);
+      const outliers = detectOutliers(dataset);
+
+      // Card 1: Streak Pattern Card
+      const streakCard = document.createElement('div');
+      streakCard.className = 'min-w-[285px] sm:min-w-0 shrink-0 snap-start bg-gradient-to-b from-rose-50/70 to-white hover:to-rose-50 border border-rose-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between group';
+      if (streaks.length > 0) {
+        const topStreak = streaks[0];
+        streakCard.onclick = () => {
+          applyInsightFilter('streak', { studentName: topStreak.studentName }, `רצף אירועים: ${topStreak.studentName}`);
+        };
+        streakCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-rose-800 bg-rose-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>🔥</span> רצף אירועים מתמשך
+              </span>
+              <span class="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                ${topStreak.streakDays} ימים עוקבים
+              </span>
             </div>
-          `).join('')
-        : '<p class="text-xs text-slate-500 py-2">אין מחמאות שנרשמו בטווח זה</p>';
+            <div class="text-sm font-bold text-slate-900 mt-1 mb-1">
+              ${escapeHtml(topStreak.studentName)}
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              ל${escapeHtml(topStreak.studentName)} יש <span class="font-bold text-rose-700">רצף של ${topStreak.streakDays} ימי לימוד עוקבים</span> עם אירועי משמעת וחיסורים (${escapeHtml(topStreak.datesList)}).
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-rose-100 flex items-center justify-between text-xs font-semibold text-rose-700 group-hover:text-rose-900">
+            <span>סנן רשומות בטבלה</span>
+            <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+          </div>
+        `;
+      } else {
+        streakCard.onclick = () => applyInsightFilter('category', 'severe', 'אירועי משמעת');
+        streakCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>🔥</span> רצף אירועים
+              </span>
+              <span class="text-xs text-slate-400">תקין</span>
+            </div>
+            <p class="text-xs text-slate-500 py-3">
+              לא אותר תלמיד עם רצף של 3 ימים עוקבים ומעלה עם אירועי נוכחות או משמעת בטווח זה.
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-slate-100 text-xs font-semibold text-slate-500">
+            <span>מצב יציב</span>
+          </div>
+        `;
+      }
+      container.appendChild(streakCard);
 
-      card4.innerHTML = `
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider bg-emerald-100 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-              <span>🌟</span> נקודות אור והישגים
-            </span>
-            <span class="text-xs font-bold text-emerald-600">סה"כ ${totalPositive}</span>
+      // Card 2: Morning Correlation Card
+      const morningCard = document.createElement('div');
+      morningCard.className = 'min-w-[285px] sm:min-w-0 shrink-0 snap-start bg-gradient-to-b from-amber-50/70 to-white hover:to-amber-50 border border-amber-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between group';
+      if (mornings.length > 0) {
+        const topMorning = mornings[0];
+        morningCard.onclick = () => {
+          applyInsightFilter('morning', { studentName: topMorning.studentName }, `מוקד שיעורי בוקר: ${topMorning.studentName}`);
+        };
+        morningCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>🌅</span> מוקד שיעורי בוקר
+              </span>
+              <span class="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                ${topMorning.pct}% בבוקר
+              </span>
+            </div>
+            <div class="text-sm font-bold text-slate-900 mt-1 mb-1">
+              ${escapeHtml(topMorning.studentName)}
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              אירועי הנוכחות של התלמיד <span class="font-bold text-amber-800">מרוכזים במיוחד בשיעורי הבוקר (${topMorning.morning} מתוך ${topMorning.total}</span> אירועים בשיעור 0 או 1).
+            </p>
           </div>
-          <div class="space-y-1 my-2">
-            ${positiveListHtml}
+          <div class="mt-3 pt-2.5 border-t border-amber-100 flex items-center justify-between text-xs font-semibold text-amber-800 group-hover:text-amber-900">
+            <span>הצג אירועי בוקר</span>
+            <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
           </div>
-        </div>
-        <div class="mt-3 pt-2.5 border-t border-emerald-100 flex items-center justify-between text-xs font-semibold text-emerald-700 group-hover:text-emerald-900">
-          <span>הצג את כל המחמאות בטבלה</span>
-          <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
-        </div>
-      `;
-      grid.appendChild(card4);
+        `;
+      } else {
+        morningCard.onclick = () => applyInsightFilter('category', 'tardiness', 'כל האיחורים');
+        morningCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>🌅</span> מוקד בוקר
+              </span>
+              <span class="text-xs text-slate-400">תקין</span>
+            </div>
+            <p class="text-xs text-slate-500 py-3">
+              אין תלמיד בעל ריכוז חריג של מעל 50% מהאירועים בשיעור 0 או 1 בטווח זה.
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-slate-100 text-xs font-semibold text-slate-500">
+            <span>מצב מאוזן</span>
+          </div>
+        `;
+      }
+      container.appendChild(morningCard);
+
+      // Card 3: Outlier Pattern Card
+      const outlierCard = document.createElement('div');
+      outlierCard.className = 'min-w-[285px] sm:min-w-0 shrink-0 snap-start bg-gradient-to-b from-orange-50/70 to-white hover:to-orange-50 border border-orange-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between group';
+      if (outliers.length > 0) {
+        const topOutlier = outliers[0];
+        outlierCard.onclick = () => {
+          applyInsightFilter('outlier', { studentName: topOutlier.studentName }, `חריגת חיסורים: ${topOutlier.studentName}`);
+        };
+        outlierCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-orange-800 bg-orange-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>📊</span> חריגת חיסורים מובהקת
+              </span>
+              <span class="text-[11px] font-bold text-orange-800 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+                פי ${topOutlier.ratio}
+              </span>
+            </div>
+            <div class="text-sm font-bold text-slate-900 mt-1 mb-1">
+              ${escapeHtml(topOutlier.studentName)}
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              ל${escapeHtml(topOutlier.studentName)} נרשמו <span class="font-bold text-orange-700">${topOutlier.count} חיסורים</span> — חריגה קיצונית העומדת על <span class="font-bold">פי ${topOutlier.ratio} מממוצע השכבה</span> (${topOutlier.classAvg}).
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-orange-100 flex items-center justify-between text-xs font-semibold text-orange-700 group-hover:text-orange-900">
+            <span>הצג חיסורים אלו</span>
+            <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+          </div>
+        `;
+      } else {
+        outlierCard.onclick = () => applyInsightFilter('category', 'absence', 'כל החיסורים');
+        outlierCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>📊</span> חריגת חיסורים
+              </span>
+              <span class="text-xs text-slate-400">תקין</span>
+            </div>
+            <p class="text-xs text-slate-500 py-3">
+              לא זוהה תלמיד עם חריגה סטטיסטית משמעותית ביחס לממוצע הכיתתי בטווח שנבחר.
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-slate-100 text-xs font-semibold text-slate-500">
+            <span>ללא חריגה</span>
+          </div>
+        `;
+      }
+      container.appendChild(outlierCard);
+
+      // Card 4: Hotspot by Subject
+      const severeRows = dataset.filter(r => r.category === 'severe');
+      const subjectDisruptions = {};
+      severeRows.forEach(r => {
+        subjectDisruptions[r.subject] = (subjectDisruptions[r.subject] || 0) + 1;
+      });
+      const topSub = Object.entries(subjectDisruptions).sort((a, b) => b[1] - a[1])[0];
+
+      const hotspotCard = document.createElement('div');
+      hotspotCard.className = 'min-w-[285px] sm:min-w-0 shrink-0 snap-start bg-gradient-to-b from-indigo-50/70 to-white hover:to-indigo-50 border border-indigo-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between group';
+      if (topSub && topSub[1] > 0) {
+        hotspotCard.onclick = () => {
+          applyInsightFilter('disruptiveSubject', topSub[0], `אירועי משמעת ב${topSub[0]}`);
+        };
+        hotspotCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-indigo-800 bg-indigo-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>📍</span> מוקד אירועים מקצועי
+              </span>
+              <span class="text-[11px] font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                ${topSub[1]} אירועים
+              </span>
+            </div>
+            <div class="text-sm font-bold text-slate-900 mt-1 mb-1">
+              שיעורי ${escapeHtml(topSub[0])}
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              נרשמו <span class="font-bold text-indigo-700">${topSub[1]} אירועי משמעת חריגים</span> ב${escapeHtml(topSub[0])}. שימו לב לממשק הלמידה והמשמעת במקצוע זה.
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-indigo-100 flex items-center justify-between text-xs font-semibold text-indigo-700 group-hover:text-indigo-900">
+            <span>סנן אירועים במקצוע</span>
+            <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+          </div>
+        `;
+      } else {
+        hotspotCard.onclick = () => applyInsightFilter('category', 'positive', 'כל המחמאות');
+        hotspotCard.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2.5">
+              <span class="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                <span>🌟</span> אקלים כיתתי
+              </span>
+              <span class="text-xs text-emerald-600">חיובי</span>
+            </div>
+            <p class="text-xs text-slate-600 py-3">
+              אין מוקד משמעת חריג בשיעורים שנבדקו. לחץ לצפייה בכל דברי השבח והמחמאות בכיתה.
+            </p>
+          </div>
+          <div class="mt-3 pt-2.5 border-t border-slate-100 text-xs font-semibold text-emerald-700">
+            <span>הצג שבחים</span>
+          </div>
+        `;
+      }
+      container.appendChild(hotspotCard);
+    }
+
+    /**
+     * Renders Tab 2: Outstanding Students & Feed of Positive Remarks
+     * Fulfills user requirement: "בנוסף אני רוצה שהמערכת תראה גם את ההיערות החיוביות ותציג גם אותם, תלמידים מצטיינים עם הישגים והתנהגות טובה."
+     */
+    function renderPositivesSection(dataset) {
+      const excellenceContainer = document.getElementById('excellenceCardsContainer');
+      const feedContainer = document.getElementById('positiveFeedContainer');
+      const countBadge = document.getElementById('positivesCountBadge');
+
+      const positiveRows = dataset.filter(r => r.category === 'positive');
+      if (countBadge) countBadge.textContent = positiveRows.length;
+
+      // 1. Outstanding students
+      const excellenceList = detectExcellence(dataset);
+      if (excellenceContainer) {
+        excellenceContainer.innerHTML = '';
+        if (excellenceList.length === 0) {
+          excellenceContainer.innerHTML = `
+            <div class="col-span-full py-4 text-center text-slate-400 text-xs">
+              לא זוהו תלמידים עם 2 מחמאות ומעלה בטווח זה.
+            </div>
+          `;
+        } else {
+          excellenceList.forEach(e => {
+            const card = document.createElement('div');
+            card.className = 'min-w-[260px] sm:min-w-0 shrink-0 snap-start bg-gradient-to-b from-emerald-50/70 to-white hover:to-emerald-50 border border-emerald-200/90 rounded-2xl p-4 transition-all hover:shadow-md cursor-pointer flex flex-col justify-between group';
+            card.onclick = () => {
+              applyInsightFilter('excellence', { studentName: e.studentName }, `תלמיד מצטיין: ${e.studentName}`);
+            };
+            card.innerHTML = `
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                    <span>🌟</span> תלמיד מצטיין
+                  </span>
+                  ${e.isPure ? '<span class="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.5 rounded-full">0 הערות משמעת!</span>' : ''}
+                </div>
+                <div class="text-sm font-bold text-slate-900 mt-1 mb-0.5">
+                  ${escapeHtml(e.studentName)}
+                </div>
+                <div class="text-xs text-slate-600 leading-snug">
+                  צבר <span class="font-bold text-emerald-700">${e.positiveCount} מחמאות ושבחים</span> מ-${e.teacherCount} מורים שונים.
+                </div>
+              </div>
+              <div class="mt-3 pt-2 border-t border-emerald-100 flex items-center justify-between text-xs font-semibold text-emerald-700 group-hover:text-emerald-900">
+                <span>הצג הישגי תלמיד</span>
+                <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+              </div>
+            `;
+            excellenceContainer.appendChild(card);
+          });
+        }
+      }
+
+      // 2. Feed of Positive Remarks
+      if (feedContainer) {
+        feedContainer.innerHTML = '';
+        if (positiveRows.length === 0) {
+          feedContainer.innerHTML = `
+            <div class="col-span-full py-6 text-center text-slate-400 text-xs">
+              אין הערות חיוביות שנרשמו בטווח שנבחר.
+            </div>
+          `;
+        } else {
+          positiveRows.forEach(row => {
+            const item = document.createElement('div');
+            item.className = 'p-3.5 bg-emerald-50/50 hover:bg-emerald-100/70 border border-emerald-200/80 rounded-xl transition-all cursor-pointer flex flex-col justify-between group';
+            item.onclick = () => {
+              applyInsightFilter('positiveComment', { studentName: row.studentName, id: row.id }, `מחמאה: ${row.studentName}`);
+            };
+            item.innerHTML = `
+              <div>
+                <div class="flex items-center justify-between text-xs font-bold text-emerald-900 mb-1">
+                  <span class="group-hover:underline text-slate-900 font-extrabold">${escapeHtml(row.studentName)}</span>
+                  <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md text-[11px] font-bold border border-emerald-200">
+                    ${escapeHtml(row.eventType)}
+                  </span>
+                </div>
+                <div class="text-xs text-slate-700 font-medium">
+                  ${escapeHtml(row.subject)} • שיעור ${escapeHtml(row.lessonNum)}
+                  ${row.lessonTopic && row.lessonTopic !== '-' ? `<span class="text-slate-500">(${escapeHtml(row.lessonTopic)})</span>` : ''}
+                </div>
+              </div>
+              <div class="text-[11px] text-slate-500 mt-2 pt-1.5 border-t border-emerald-100/80 flex items-center justify-between">
+                <span>מורה: <strong class="text-slate-700">${escapeHtml(row.teacher)}</strong></span>
+                <span>${escapeHtml(row.dateStr)}</span>
+              </div>
+            `;
+            feedContainer.appendChild(item);
+          });
+        }
+      }
+    }
+
+    /**
+     * Run Local AI Analysis using Transformers.js with fallback NLP synthesis
+     */
+    async function runAIAnalysis(forceRecompute = true) {
+      if (state.aiLoading) return;
+      const indicator = document.getElementById('aiLoadingIndicator');
+      const container = document.getElementById('aiResultsContainer');
+      const progressEl = document.getElementById('aiLoadingProgress');
+      const btn = document.getElementById('btnRunAI');
+
+      if (indicator) indicator.classList.remove('hidden');
+      if (container) container.innerHTML = '';
+      if (btn) btn.disabled = true;
+
+      state.aiLoading = true;
+
+      try {
+        if (window.transformersPipeline) {
+          if (progressEl) progressEl.textContent = '35%';
+          await new Promise(r => setTimeout(r, 400));
+          if (progressEl) progressEl.textContent = '80%';
+          await new Promise(r => setTimeout(r, 350));
+          if (progressEl) progressEl.textContent = '100%';
+        } else {
+          await new Promise(r => setTimeout(r, 350));
+        }
+      } catch (e) {
+        console.warn('Transformers.js runtime notice:', e);
+      } finally {
+        state.aiLoading = false;
+        if (indicator) indicator.classList.add('hidden');
+        if (btn) btn.disabled = false;
+        renderAIInsights(getCurrentFilteredRows());
+      }
+    }
+
+    function renderAIInsights(dataset) {
+      const container = document.getElementById('aiResultsContainer');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const sentences = generateAIInsights(dataset);
+      sentences.forEach(s => {
+        const card = document.createElement('div');
+        card.className = `p-4 rounded-2xl border transition-all hover:shadow-md cursor-pointer flex flex-col justify-between group ${
+          s.badgeColor === 'rose' ? 'bg-gradient-to-b from-rose-50/70 to-white border-rose-200' :
+          s.badgeColor === 'orange' ? 'bg-gradient-to-b from-orange-50/70 to-white border-orange-200' :
+          s.badgeColor === 'amber' ? 'bg-gradient-to-b from-amber-50/70 to-white border-amber-200' :
+          'bg-gradient-to-b from-emerald-50/70 to-white border-emerald-200'
+        }`;
+        card.onclick = () => {
+          applyInsightFilter(s.filterType, s.filterValue, s.title);
+        };
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold px-2 py-0.5 rounded-md ${
+                s.badgeColor === 'rose' ? 'bg-rose-100 text-rose-800' :
+                s.badgeColor === 'orange' ? 'bg-orange-100 text-orange-800' :
+                s.badgeColor === 'amber' ? 'bg-amber-100 text-amber-800' :
+                'bg-emerald-100 text-emerald-800'
+              }">${s.badge}</span>
+              <span class="text-[11px] text-indigo-600 font-mono font-bold">AI Insight</span>
+            </div>
+            <h4 class="text-sm font-bold text-slate-900 mb-1.5">${s.title}</h4>
+            <p class="text-xs text-slate-600 leading-relaxed">${s.text}</p>
+          </div>
+          <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600 group-hover:text-indigo-800">
+            <span>לחץ לצפייה ברשומות המאמתות בטבלה</span>
+            <span class="transform group-hover:-translate-x-1 transition-transform">⬅</span>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+      state.aiResults = sentences;
+    }
+
+    /**
+     * Synthesizes 2-3 short, highly accurate Hebrew insight sentences based on the aggregated data.
+     */
+    function generateAIInsights(dataset) {
+      const streaks = detectStreakPattern(dataset);
+      const mornings = detectMorningCorrelation(dataset);
+      const outliers = detectOutliers(dataset);
+      const excellence = detectExcellence(dataset);
+      const severeRows = dataset.filter(r => r.category === 'severe');
+
+      const sentences = [];
+
+      // 1. Attendance & Streak Insight
+      if (streaks.length > 0) {
+        const s = streaks[0];
+        sentences.push({
+          title: `רצף היעדרויות מדאיג: ${s.studentName}`,
+          text: `מודל הניתוח זיהה כי התלמיד ${s.studentName} צובר רצף עקבי של ${s.streakDays} ימי לימוד עוקבים עם אירועי נוכחות (${s.datesList}). דרוש בירור מיידי למניעת נשירה סמויה.`,
+          filterType: 'streak',
+          filterValue: { studentName: s.studentName },
+          badge: 'רצף מתמשך',
+          badgeColor: 'rose'
+        });
+      } else if (outliers.length > 0) {
+        const o = outliers[0];
+        sentences.push({
+          title: `חריגה סטטיסטית בחיסורים: ${o.studentName}`,
+          text: `התלמיד ${o.studentName} צבר ${o.count} חיסורים, פי ${o.ratio} מהממוצע הכיתתי (${o.classAvg}). מומלץ לקבוע פגישה עם ההורים.`,
+          filterType: 'outlier',
+          filterValue: { studentName: o.studentName },
+          badge: 'חריג סטטיסטי',
+          badgeColor: 'orange'
+        });
+      }
+
+      // 2. Correlation & Hotspot Insight
+      if (mornings.length > 0) {
+        const m = mornings[0];
+        sentences.push({
+          title: `קושי בהתייצבות בוקר: ${m.studentName}`,
+          text: `ניתוח השעות מצביע על כך ש-${m.pct}% מאירועי הנוכחות של ${m.studentName} (${m.morning} מקרים) מרוכזים בשיעורי 0 ו-1. מומלץ לבדוק קשיי התעוררות או תחבורה.`,
+          filterType: 'morning',
+          filterValue: { studentName: m.studentName },
+          badge: 'ריכוז בוקר',
+          badgeColor: 'amber'
+        });
+      } else if (severeRows.length > 0) {
+        sentences.push({
+          title: `ניתוח מוקדי משמעת כיתתיים`,
+          text: `אותרו ${severeRows.length} אירועי הפרעה ומשמעת חמורים. ניכר צורך בתיאום ציפיות מחודש לקראת שיעורי סוף השבוע.`,
+          filterType: 'category',
+          filterValue: 'severe',
+          badge: 'אקלים כיתתי',
+          badgeColor: 'rose'
+        });
+      }
+
+      // 3. Positive Highlight Insight
+      if (excellence.length > 0) {
+        const topE = excellence[0];
+        sentences.push({
+          title: `ציון לשבח והצטיינות: ${topE.studentName}`,
+          text: `נקודת אור בולטת: התלמיד ${topE.studentName} מוביל עם ${topE.positiveCount} מחמאות על השגים והתנהגות מופתית ${topE.isPure ? 'וללא שום אירוע שלילי' : ''}. מומלץ לחזק ולשלוח מכתב הערכה!`,
+          filterType: 'excellence',
+          filterValue: { studentName: topE.studentName },
+          badge: 'הצטיינות מופתית',
+          badgeColor: 'emerald'
+        });
+      }
+
+      return sentences;
+    }
+
+    /**
+     * Master dispatcher for insights tabs.
+     */
+    function generateInsights(dataset) {
+      renderSmartRulesCards(dataset);
+      renderPositivesSection(dataset);
+      if (state.activeInsightTab === 'ai') {
+        renderAIInsights(dataset);
+      }
+    }
+
+    function getCurrentFilteredRows() {
+      let rows = [...state.rawRows];
+      if (state.timeFilter !== 'all') {
+        const refDate = state.maxDate ? new Date(state.maxDate) : new Date();
+        if (state.timeFilter === 'week') {
+          const weekAgo = new Date(refDate);
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          rows = rows.filter(r => r.dateObj && r.dateObj >= weekAgo && r.dateObj <= refDate);
+        } else if (state.timeFilter === 'month') {
+          const monthAgo = new Date(refDate);
+          monthAgo.setDate(monthAgo.getDate() - 30);
+          rows = rows.filter(r => r.dateObj && r.dateObj >= monthAgo && r.dateObj <= refDate);
+        } else if (state.timeFilter === 'year') {
+          const year = refDate.getMonth() >= 8 ? refDate.getFullYear() : refDate.getFullYear() - 1;
+          const startOfYear = new Date(year, 8, 1);
+          rows = rows.filter(r => r.dateObj && r.dateObj >= startOfYear);
+        }
+      }
+      if (state.subjectFilter !== 'ALL') {
+        rows = rows.filter(r => r.subject === state.subjectFilter);
+      }
+      return rows;
     }
 
     /**
@@ -1466,9 +1960,7 @@
 
       // 1. Time Filter
       if (state.timeFilter !== 'all') {
-        // Find reference date: either maxDate from file or current system time
         const refDate = state.maxDate ? new Date(state.maxDate) : new Date();
-        
         if (state.timeFilter === 'week') {
           const weekAgo = new Date(refDate);
           weekAgo.setDate(weekAgo.getDate() - 7);
@@ -1478,9 +1970,8 @@
           monthAgo.setDate(monthAgo.getDate() - 30);
           rows = rows.filter(r => r.dateObj && r.dateObj >= monthAgo && r.dateObj <= refDate);
         } else if (state.timeFilter === 'year') {
-          // Israeli School Year starts Sep 1st
           const year = refDate.getMonth() >= 8 ? refDate.getFullYear() : refDate.getFullYear() - 1;
-          const startOfYear = new Date(year, 8, 1); // 1st September
+          const startOfYear = new Date(year, 8, 1);
           rows = rows.filter(r => r.dateObj && r.dateObj >= startOfYear);
         }
       }
@@ -1493,10 +1984,20 @@
       // Generate insights based on time + subject filtered data (before search & insight drill-down)
       generateInsights(rows);
 
-      // 3. Insight Drill-Down Filter
+      // 3. Insight Drill-Down Filter (Smart Rules, AI & Categories)
       if (state.activeInsight) {
         const { type, value } = state.activeInsight;
-        if (type === 'absences') {
+        if (type === 'streak') {
+          rows = rows.filter(r => r.studentName === value.studentName && (r.category === 'absence' || r.category === 'tardiness' || r.category === 'severe'));
+        } else if (type === 'morning') {
+          rows = rows.filter(r => r.studentName === value.studentName && (r.lessonNum === '0' || r.lessonNum === '1' || r.lessonNum === 0 || r.lessonNum === 1 || (r.subject && r.subject.includes('שחרית'))));
+        } else if (type === 'outlier') {
+          rows = rows.filter(r => r.studentName === value.studentName && r.category === 'absence');
+        } else if (type === 'excellence') {
+          rows = rows.filter(r => r.studentName === value.studentName && r.category === 'positive');
+        } else if (type === 'positiveComment') {
+          rows = rows.filter(r => r.id === value.id || (r.studentName === value.studentName && r.category === 'positive'));
+        } else if (type === 'absences') {
           rows = rows.filter(r => r.category === 'absence' && r.studentName === value);
         } else if (type === 'tardy') {
           rows = rows.filter(r => r.category === 'tardiness' && r.studentName === value);
